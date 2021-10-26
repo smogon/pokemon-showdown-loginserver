@@ -144,7 +144,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (!json || !Array.isArray(json)) {
 			throw new ActionError(`Malformed JSON (send a JSON array in the 'json' property).`);
 		}
-	
+
 		let serverid, servertoken;
 		for (const req of json) {
 			if (!serverid) serverid = req.serverid;

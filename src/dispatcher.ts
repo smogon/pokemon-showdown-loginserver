@@ -1,4 +1,4 @@
-	/**
+/**
  * Request handling.
  * By Mia
  * @author mia-pi-git
@@ -186,8 +186,9 @@ export class Dispatcher {
 				}
 			});
 		});
-		this.hostCache.set(server, address);
-		return address;
+		result = address;
+		this.hostCache.set(server, result);
+		return result;
 	}
 	async getServer(requireToken = false): Promise<RegisteredServer | null> {
 		const body = this.parseRequest()?.body || {};
