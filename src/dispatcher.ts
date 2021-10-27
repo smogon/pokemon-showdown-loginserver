@@ -94,7 +94,7 @@ export class Dispatcher {
 		}
 	}
 	static async getBody(req: http.IncomingMessage): Promise<{[k: string]: any}> {
-		let data = await this.parseSentRequest(req);
+		const data = await this.parseSentRequest(req);
 		let result: {[k: string]: any} | null = null;
 		if (data) {
 			if (this.isJSON(req)) {

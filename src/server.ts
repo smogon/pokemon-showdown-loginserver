@@ -70,7 +70,7 @@ export class Router {
 					results.push({actionerror: "Cannot request /api/json in a JSON request."});
 					continue;
 				}
-				// for when extra stuff is sent inside the main body - ie 
+				// for when extra stuff is sent inside the main body - ie
 				// {serverid: string, json: [...]}
 				for (const k in restData) {
 					if (restData[k] && !curBody[k]) {
@@ -114,10 +114,8 @@ export class Router {
 				return {actionerror: e.message};
 			}
 
-			const {body} = dispatcher.opts;
 			for (const k of ['pass', 'password']) delete body[k];
 			Router.crashlog(e, 'an API request', body);
-	
 			res.writeHead(503).end();
 			throw e;
 		}
