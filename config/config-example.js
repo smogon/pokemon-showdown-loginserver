@@ -32,11 +32,11 @@ exports.pspath = '/var/www/html/play.pokemonshowdown.com/data/pokemon-showdown';
 
 /**
  * Custom SID maker.
- * @type {(() => string | Promise<string>) | undefined}
+ * @type {(() => string | Promise<string>) | null}
  */
-exports.makeSid = undefined;
-/** @type {((sid: string, cached: string) => boolean | Promise<boolean>) | undefined} */
-exports.validateSid = undefined;
+exports.makeSid = null;
+/** @type {((sid: string, cached: string) => boolean | Promise<boolean>) | null} */
+exports.validateSid = null;
 
 /** ips to automatically lock 
  * @type {string[]} */
@@ -84,17 +84,17 @@ exports.ladderdb = undefined;
 
 /**
  * For emailing crashes.
- * @type {
+ * @type {{
  * options: {
- * 		host: string,
- * 		port: number,
+ * 		host: string, 
+ * 		port: number, 
  * 		secure?: boolean, 
  * 		auth?: {user: string, pass: string}
- * },
- * from: string,
- * to: string,
- * subject: string}
- * }
+ * 	},
+ * 	from: string,
+ * 	to: string,
+ * 	subject: string,
+ * } | null}
  */
 exports.crashguardemail = null;
 
