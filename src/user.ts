@@ -18,6 +18,7 @@ import {ladder, loginthrottle, sessions, users, usermodlog} from './tables';
 
 const SID_DURATION = 2 * 7 * 24 * 60 * 60;
 const LOGINTIME_INTERVAL = 24 * 60 * 60;
+const PASSWORD_RESET_TOKEN_SIZE = 10;
 
 export class User {
 	name = 'Guest';
@@ -484,5 +485,36 @@ export class Session {
 			pass = `$2b${pass.slice(3)}`;
 		}
 		return pass;
+	}
+
+	async createPasswordResetToken(name: string, timeout: null | number = null) {
+		const ctime = time();
+		const userid = toID(name);
+		if (!timeout) {
+			timeout = 7 * 24 * 60 * 60;
+		}
+		timeout += ctime;
+		// todo throttle by checking to see if pending token exists in sid table?
+		if (await this.findPendingReset(name)) {
+			throw new ActionError(`A reset token is already pending to that account.`);
+		}
+
+		await usermodlog.insert({
+			userid, actorid: userid, ip: this.context.getIp(),
+			date: ctime, entry: "Password reset token requested",
+		});
+
+		// magical character string...
+		const token = crypto.randomBytes(PASSWORD_RESET_TOKEN_SIZE).toString('hex');
+		await sessions.insert({
+			userid, sid: token, time: ctime, timeout, ip: this.context.getIp(),
+		});
+		return token;
+	}
+	async findPendingReset(name: string) {
+		const id = toID(name);
+		const sids = await sessions.selectAll()`userid = ${id}`;
+		// not a fan of this but sids are normally different lengths. have to be, iirc.
+		return sids.some(({sid}) => sid.length === (PASSWORD_RESET_TOKEN_SIZE * 2));
 	}
 }
