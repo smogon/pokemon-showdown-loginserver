@@ -166,3 +166,8 @@ exports.passwordemails = {
  * @type {import('pg').PoolConfig | null}
  */
 exports.postgres = null;
+/** @type {{transportOpts: import('nodemailer').TransportOptions, from: string}} */
+exports.passwordemails = {
+	transportOpts: {},
+	from: 'passwords@pokemonshowdown.com',
+};
