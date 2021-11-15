@@ -6,7 +6,7 @@
   "scripts": {
     "lint": "eslint . --cache --ext .js,.ts",
     "build": "npx tsc",
-    "start": "npx pm2 start src/run.js --name loginservef",
+    "start": "npx pm2 start src/run.js --name loginserver",
     "test": "npm run lint && npx tsc",
     "reload": "npx pm2 reload loginserver"
   },
