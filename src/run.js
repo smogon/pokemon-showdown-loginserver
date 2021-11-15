@@ -1,3 +1,4 @@
 require('child_process').execSync('npx tsc');
 
-require('./index');
+// @ts-ignore
+require('../.dist/src/');
