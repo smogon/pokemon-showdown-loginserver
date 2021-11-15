@@ -85,6 +85,7 @@ export class Router {
 		} else {
 			const result = await this.handleOne(body, req, res);
 			if (!result.error) {
+				this.ensureHeaders(res);
 				res.writeHead(200).end(Router.stringify(result));
 			}
 		}
