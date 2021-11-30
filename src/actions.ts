@@ -457,6 +457,8 @@ export const actions: {[k: string]: QueryHandler} = {
 				'Please delete some before uploading more.'
 			);
 		}
+		// yes, this is in the team, but we can't unpack the team so 
+		// the client has to tell us
 		const formatid = toID(params.format);
 		if (!formatid) {
 			throw new ActionError('Specify a format.');
