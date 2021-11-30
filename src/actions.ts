@@ -13,7 +13,6 @@ import {NTBBLadder} from './ladder';
 import {Replays, md5} from './replays';
 import {toID} from './server';
 import * as tables from './tables';
-import {UserInfo} from './user';
 
 // shamelessly stolen from PS main
 function bash(command: string, cwd?: string): Promise<[number, string, string]> {

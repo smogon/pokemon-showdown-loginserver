@@ -69,7 +69,6 @@ export class Session {
 				`Max-Age=0; Domain=${Config.routes.root}; Path=/; Secure; SameSite=None`
 			);
 		} else {
-			// setcookie('sid', '', ['expires' => time() - 60*60*24*2, 'path' => '/', 'domain' => $psconfig['routes']['root'], 'secure' => true, 'httponly' => true, 'samesite' => 'None']);
 			this.dispatcher.setHeader(
 				"Set-Cookie",
 				`sid=; Max-Age=0; Domain=${Config.routes.root}; ` +
@@ -121,9 +120,9 @@ export class Session {
 		const ip = this.dispatcher.getIp();
 		const sidhash = this.sidhash = await this.makeSid();
 		const res = await sessions.insert({
-			userid, 
-			sid: await bcrypt.hash(sidhash, Config.passwordSalt), 
-			time: time(), 
+			userid,
+			sid: await bcrypt.hash(sidhash, Config.passwordSalt),
+			time: time(),
 			timeout,
 			ip,
 		});
