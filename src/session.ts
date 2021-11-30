@@ -13,7 +13,7 @@ import * as gal from 'google-auth-library';
 import SQL from 'sql-template-strings';
 import {toID} from './server';
 import {ladder, loginthrottle, sessions, users, usermodlog} from './tables';
-import type {User} from './user';
+import type {User, UserInfo} from './user';
 
 const SID_DURATION = 2 * 7 * 24 * 60 * 60;
 const LOGINTIME_INTERVAL = 24 * 60 * 60;
@@ -434,7 +434,7 @@ export class Session {
 		query.append(SQL`WHERE \`session\` = ${session} `);
 		query.append('AND `ntbb_sessions`.`userid` = `ntbb_users`.`userid` ');
 		query.append(' LIMIT 1');
-		const res = await users.database.get<{sid: string; timeout: number}>(query);
+		const res = await users.database.get<UserInfo & {sid: string; timeout: number}>(query);
 		if (!res || !(await bcrypt.compare(sid, res.sid))) {
 			// invalid session ID
 			this.deleteCookie();
@@ -452,5 +452,6 @@ export class Session {
 
 		this.sidhash = sid;
 		this.session = session;
+		this.dispatcher.user.registered = !!res.registertime;
 	}
 }

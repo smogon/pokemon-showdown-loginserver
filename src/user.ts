@@ -30,6 +30,7 @@ export interface UserInfo {
 export class User {
 	name = 'Guest';
 	id = 'guest';
+	registered = false;
 	dispatcher: Dispatcher;
 	session: Session;
 	loggedin = false;

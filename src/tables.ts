@@ -62,3 +62,11 @@ export const userstatshistory = new DatabaseTable<{
 	usercount: number;
 	programid: 'showdown' | 'po';
 }>('userstatshistory', 'id');
+
+export const teams = new DatabaseTable<{
+	id: number;
+	userid: string;
+	team: string;
+	date: number;
+	format: string;
+}>('teams', 'id');

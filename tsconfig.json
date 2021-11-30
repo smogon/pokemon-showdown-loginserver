@@ -14,8 +14,6 @@
     "skipLibCheck": true,
   },
   "types": ["node"],
-  "include": [
-    "./src/*", "./src/test/*", "scripts/run.js",
-  ],
-  "exclude": ["./.dist/**/*", "./scripts/**/*"],
+  "include": ["./src/**/*"],
+  "exclude": ["./.dist/**/*", "./node_modules/**/*"],
 }

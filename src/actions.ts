@@ -13,7 +13,6 @@ import {NTBBLadder} from './ladder';
 import {Replays, md5} from './replays';
 import {toID} from './server';
 import * as tables from './tables';
-import {UserInfo} from './user';
 
 // shamelessly stolen from PS main
 function bash(command: string, cwd?: string): Promise<[number, string, string]> {
@@ -435,8 +434,141 @@ export const actions: {[k: string]: QueryHandler} = {
 			throw new ActionError(`Access denied for ${this.getIp()}.`);
 		}
 		const update = await updateserver();
-		const [, , stderr] = await bash('npx pm2 reload loginserver');
+		let stderr;
+		[, , stderr] = await bash('npx tsc');
+		if (stderr) throw new ActionError(`Compilation failed:\n${stderr}`);
+		[, , stderr] = await bash('npx pm2 reload loginserver');
 		if (stderr) throw new ActionError(stderr);
 		return {updated: update, success: true};
+	},
+	async uploadteam(params) {
+		if (this.request.method !== 'POST') {
+			throw new ActionError('Team uploading must be done through POST requests.');
+		}
+		if (!this.user.registered) {
+			throw new ActionError('Please register and log in to upload teams.');
+		}
+		const teams = await tables.teams.selectAll(
+			'*', SQL`WHERE userid = ${this.user.id}`
+		);
+		if (teams.length > 3000) {
+			throw new ActionError(
+				'You have reached the maximum number of teams (3000).' +
+				'Please delete some before uploading more.'
+			);
+		}
+		const formatid = toID(params.format);
+		if (!formatid) {
+			throw new ActionError('Specify a format.');
+		}
+		const team = (params.team || "").trim();
+		if (!toID(team) || team.length > 1200 || team.length < 5) {
+			throw new ActionError('Invalid team.');
+		}
+		const existing = await tables.teams.selectOne(
+			'*', SQL`team = ${team} AND userid = ${this.user.id}`
+		);
+		if (existing) {
+			throw new ActionError('You already uploaded this team.');
+		}
+		const id = Number(toID(params.id || ""));
+		if (id) {
+			const found = await tables.teams.get('*', id);
+			if (found) {
+				if (found.userid !== this.user.id) {
+					throw new ActionError('You cannot overwrite another user\'s team.');
+				}
+				await tables.teams.update(id, {
+					team,
+					format: formatid,
+					date: Date.now(),
+				});
+				return {success: true};
+			}
+		}
+		const result = await tables.teams.insert({
+			team,
+			format: formatid,
+			userid: this.user.id,
+			date: Date.now(),
+		});
+		return {success: !!result.affectedRows};
+	},
+	async deleteteam(params) {
+		// not regged, not logged in
+		if (!this.user.registered) {
+			throw new ActionError(
+				'You must be registered and logged in to delete your teams.'
+			);
+		}
+		const id = Number(toID(params.id || ""));
+		if (!id) {
+			throw new ActionError(
+				'No team was specified or the given team ID was invalid.'
+			);
+		}
+		const found = await tables.teams.get('*', id);
+		if (found?.userid !== this.user.id) {
+			throw new ActionError('You cannot delete another user\'s team.');
+		}
+		const result = await tables.teams.delete(id);
+		return {success: !!result.affectedRows};
+	},
+	async listteams() {
+		if (!this.user.registered) {
+			throw new ActionError('You must be registered and logged in to view your teams.');
+		}
+		const teams = await tables.teams.selectAll(
+			'*', SQL`WHERE userid = ${this.user.id}`
+		);
+		return {teams, count: teams.length};
+	},
+	// overriding since this takes only application/json
+	async batchuploadteam(params: {[k: string]: any}) {
+		if (this.request.method !== 'POST') {
+			throw new ActionError('Team uploading must be done through POST requests.');
+		}
+		if (this.request.headers['content-type'] !== 'application/json') {
+			throw new ActionError('Team uploading must be done through JSON.');
+		}
+		if (!this.user.registered) {
+			throw new ActionError(
+				'You must be registered and logged in to upload your teams.'
+			);
+		}
+		const teams = params.teams;
+		if (!Array.isArray(teams)) {
+			throw new ActionError('Malformed teams sent - must be an array.');
+		}
+		if (!teams.every(chunk => typeof chunk.team === 'string')) {
+			throw new ActionError('Malformed teams sent - must be all be packed.');
+		}
+		const failures = [];
+		for (const {team, format, id} of teams) {
+			if (team.length > 1200 || team.length < 5) {
+				throw new ActionError('Invalid team - ' + team);
+			}
+			const formatid = toID(format);
+			if (!formatid) {
+				throw new ActionError('Invalid format - ' + format);
+			}
+			try {
+				await actions.uploadteam.call(this, {
+					team,
+					format: formatid,
+					id,
+				});
+			} catch (e) {
+				if (!(e instanceof ActionError)) {
+					throw e;
+				}
+				failures.push({team, format, error: e.message});
+			}
+		}
+		return {
+			actionsuccess: failures.length === 0,
+			failures,
+			successes: teams.length - failures.length,
+		};
 	},
 };
