@@ -13,6 +13,12 @@ import {NTBBLadder} from './ladder';
 import {Replays, md5} from './replays';
 import {toID} from './server';
 import * as tables from './tables';
+import * as nodemailer from 'nodemailer';
+
+// eslint-disable-next-line
+const EMAIL_REGEX = /(?:[a-z0-9!#$%&\'*+\/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&\'*+\/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])/i;
+
+const mailer = nodemailer.createTransport(Config.passwordemails.transportOpts);
 
 // shamelessly stolen from PS main
 function bash(command: string, cwd?: string): Promise<[number, string, string]> {
@@ -445,5 +451,87 @@ export const actions: {[k: string]: QueryHandler} = {
 		[, , stderr] = await bash('npx pm2 reload loginserver');
 		if (stderr) throw new ActionError(stderr);
 		return {updated: update, success: true};
+	},
+	async setemail(params) {
+		if (!this.user.loggedin) {
+			throw new ActionError(`You must be logged in to set an email.`);
+		}
+		if (!params.email || typeof params.email !== 'string') {
+			throw new ActionError(`You must send an email.`);
+		}
+		const email = EMAIL_REGEX.exec(params.email)?.[0];
+		if (!email) throw new ActionError(`Invalid email sent.`);
+		const data = await tables.users.get('*', this.user.id);
+		if (!data) throw new ActionError(`You are not registered.`);
+		if (data.email?.endsWith('@')) {
+			throw new ActionError(`You have 2FA, and do not need to set an email for password resets.`);
+		}
+		const result = await tables.users.update(this.user.id, {email});
+
+		delete (data as any).passwordhash;
+		return {
+			success: !!result.changedRows,
+			curuser: Object.assign(data, {email}),
+		};
+	},
+	async clearemail() {
+		if (!this.user.loggedin) {
+			throw new ActionError(`You must be logged in to edit your email.`);
+		}
+		const data = await tables.users.get('*', this.user.id);
+		if (!data) throw new ActionError(`You are not registered.`);
+		if (data.email?.endsWith('@')) {
+			throw new ActionError(
+				`You have 2FA, and need an administrator to set/unset your email manually.`
+			);
+		}
+		const result = await tables.users.update(this.user.id, {email: null});
+
+		delete (data as any).passwordhash;
+		return {
+			actionsuccess: !!result.changedRows,
+			curuser: Object.assign(data, {email: null}),
+		};
+	},
+	async resetpassword(params) {
+		if (typeof params.email !== 'string' || !params.email) {
+			throw new ActionError(`You must provide an email address.`);
+		}
+		const email = EMAIL_REGEX.exec(params.email)?.[0];
+		if (!email) {
+			throw new ActionError(`Invalid email sent.`);
+		}
+		const data = await tables.users.selectOne('*', SQL`email = ${email}`);
+		if (!data) {
+			// no user associated with that email.
+			// ...pretend like it succeeded (we don't wanna leak that it's in use, after all)
+			return {success: true};
+		}
+		if (!data.email) {
+			// should literally never happen
+			throw new Error(`Account data found with no email, but had an email match`);
+		}
+		if (data.email.endsWith('@')) {
+			throw new ActionError(`You have 2FA, and so do not need a password reset.`);
+		}
+		const token = await this.session.createPasswordResetToken(data.username);
+
+		await mailer.sendMail({
+			from: Config.passwordemails.from,
+			to: data.email,
+			subject: "Pokemon Showdown account password reset",
+			text: (
+				`You requested a password reset for the Pokemon Showdown account ${data.userid}. Click this link https://${Config.routes.root}/resetpassword/${token} and follow the instructions to change your password.\n` +
+				`Not you? Please contact staff by typing /ht in any chatroom on Pokemon Showdown. \n` +
+				`If you are unable to do so, visit the Help chatroom.`
+			),
+			html: (
+				`You requested a password reset for the Pokemon Showdown account ${data.userid}. ` +
+				`Click <a href="https://${Config.routes.root}/resetpassword/${token}">this link</a> and follow the instructions to change your password.<br />` +
+				`Not you? Please contact staff by typing <code>/ht</code> in any chatroom on Pokemon Showdown. <br />` +
+				`If you are unable to do so, visit the <a href="${Config.routes.client}/help">Help</a> chatroom.`
+			),
+		});
+		return {success: true};
 	},
 };

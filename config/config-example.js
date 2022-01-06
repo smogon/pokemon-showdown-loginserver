@@ -23,6 +23,7 @@ exports.passwordSalt = 10;
 // routes
 exports.routes = {
 	root: "pokemonshowdown.com",
+	client: "play.pokemonshowdown.com",
 };
 
 exports.mainserver = 'showdown';
@@ -123,3 +124,9 @@ exports.watchconfig = true;
  * @type {null | string}
  */
 exports.restartip = null;
+
+/** @type {{transportOpts: import('nodemailer').TransportOptions, from: string}} */
+exports.passwordemails = {
+	transportOpts: {},
+	from: 'passwords@pokemonshowdown.com',
+};
