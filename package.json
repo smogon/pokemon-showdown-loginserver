@@ -26,6 +26,7 @@
     "@types/mocha": "^5.2.6",
     "@typescript-eslint/eslint-plugin": "^4.30.0",
     "@typescript-eslint/parser": "^4.30.0",
+    "2fa-util": "^1.1.1",
     "eslint": "^7.32.0",
     "eslint-plugin-import": "^2.22.1",
     "mocha": "^6.0.2",
