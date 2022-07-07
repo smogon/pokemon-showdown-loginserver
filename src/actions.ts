@@ -99,7 +99,7 @@ export const actions: {[k: string]: QueryHandler} = {
 			);
 		}
 		
-		const alreadyhas2fa = await tables.users.get(['mfaenabled'], userid).catch(() => []);
+		const alreadyhas2fa = await tables.users.get(['mfaenabled'], userid).catch(() => {});
 		if (alreadyhas2fa?.mfaenabled === 1) return false;
 
 		const token = await generateSecret(userid, 'Pokemon Showdown!')
