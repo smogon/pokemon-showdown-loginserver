@@ -14,7 +14,7 @@ import SQL from 'sql-template-strings';
 import {toID} from './server';
 import {ladder, loginthrottle, sessions, users, usermodlog} from './tables';
 import type {User} from './user';
-const {verify} = require('2fa-util');
+import {verify} from '2fa-util';
 
 const SID_DURATION = 2 * 7 * 24 * 60 * 60;
 const LOGINTIME_INTERVAL = 24 * 60 * 60;
