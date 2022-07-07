@@ -128,7 +128,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		const challengekeyid = parseInt(params.challengekeyid) || -1;
 		let actionsuccess = await this.session.passwordVerify(params.name, params.pass);
 		if (!actionsuccess) return {actionsuccess, assertion: false};
-		actionsuccess = true;//await this.session.mfaVerify(userid, params.mfa);
+		actionsuccess = await this.session.mfaVerify(userid, params.mfa);
 		if (!actionsuccess) return {actionsuccess, assertion: false};
 		const challenge = params.challstr || "";
 		const assertion = await this.session.getAssertion(
