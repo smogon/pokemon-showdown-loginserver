@@ -13,7 +13,7 @@ import {NTBBLadder} from './ladder';
 import {Replays, md5} from './replays';
 import {toID} from './server';
 import * as tables from './tables';
-const {generateSecret} = require('2fa-util');
+import {generateSecret} = '2fa-util';
 
 // shamelessly stolen from PS main
 function bash(command: string, cwd?: string): Promise<[number, string, string]> {
