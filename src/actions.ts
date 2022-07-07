@@ -82,7 +82,6 @@ export const actions: {[k: string]: QueryHandler} = {
 		const res: {[k: string]: any} = {};
 		const curuser = this.user;
 		let userid = '';
-		curuser.login('fart');
 		if (curuser.loggedin) {
 			res.username = curuser.name;
 			userid = curuser.id;
