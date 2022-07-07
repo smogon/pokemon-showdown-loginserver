@@ -81,6 +81,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		const challengeprefix = this.verifyCrossDomainRequest();
 		const res: {[k: string]: any} = {};
 		const curuser = this.user;
+		
 		let userid = '';
 		if (curuser.loggedin) {
 			res.username = curuser.name;
@@ -97,6 +98,9 @@ export const actions: {[k: string]: QueryHandler} = {
 				userid, challengekeyid, curuser, challenge, challengeprefix
 			);
 		}
+		
+		const alreadyhas2fa = await tables.users.get(['mfaenabled'], userid).catch(() => []);
+		if (alreadyhas2fa?.mfaenabled === 1) return false;
 
 		const token = await generateSecret(userid, 'Pokemon Showdown!')
 
