@@ -45,8 +45,8 @@ export function stripNonAscii(str: string) {
 	return str.replace(/[^(\x20-\x7F)]+/g, '');
 }
 
-export function SHA256(str: string) {
-	return crypto.createHash('SHA256').update(str).digest('hex');
+export function sha256(str: string) {
+	return crypto.createHash('sha256').update(str).digest('hex');
 }
 
 export const Replays = new class {
@@ -256,9 +256,9 @@ export const Replays = new class {
 		let fullid = id;
 		if (password) fullid += '-' + password + 'pw';
 
-		if (md5(stripNonAscii(params.log)) !== preppedReplay.loghash) {
+		if (sha256(stripNonAscii(params.log)) !== preppedReplay.loghash) {
 			params.log = params.log.replace('\r', '');
-			if (md5(stripNonAscii(params.log)) !== preppedReplay.loghash) {
+			if (sha256(stripNonAscii(params.log)) !== preppedReplay.loghash) {
 				// Hashes don't match.
 
 				// Someone else tried to upload a replay of the same battle,
