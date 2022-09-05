@@ -45,12 +45,12 @@ export function stripNonAscii(str: string) {
 	return str.replace(/[^(\x20-\x7F)]+/g, '');
 }
 
-export function md5(str: string) {
-	return crypto.createHash('md5').update(str).digest('hex');
+export function SHA256(str: string) {
+	return crypto.createHash('SHA256').update(str).digest('hex');
 }
 
 export const Replays = new class {
-	readonly passwordCharacters = '0123456789abcdefghijklmnopqrstuvwxyz';
+	readonly passwordCharacters = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 	async prep(params: {[k: string]: any}) {
 		const id = params.id;
 		let isPrivate = params.hidden ? 1 : 0;
