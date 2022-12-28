@@ -68,7 +68,7 @@ export class Dispatcher {
 		this.user = new User(this.session);
 		this.opts = opts;
 		this.cookies = Dispatcher.parseCookie(this.request.headers.cookie);
-		
+
 		fs.watchFile(Config.serverlist, (curr, prev) => {
 			if (curr.mtime > prev.mtime) {
 				Dispatcher.loadServers();
