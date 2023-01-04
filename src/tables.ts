@@ -13,15 +13,15 @@ import type {UserInfo} from './user';
 export const users = new DatabaseTable<UserInfo>('users', 'userid');
 
 export const ladder = new DatabaseTable<LadderEntry>(
-	'ladder', 'entryid', Config.ladderdb
+	'ladder', 'entryid',
 );
 
 export const prepreplays = new DatabaseTable<PreparedReplay>(
-	'prepreplays', 'id', Config.replaysdb
+	'prepreplays', 'id',
 );
 
 export const replays = new DatabaseTable<ReplayData>(
-	'replays', 'id', Config.replaysdb
+	'replays', 'id',
 );
 
 export const sessions = new DatabaseTable<{
