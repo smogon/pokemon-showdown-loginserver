@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "lib": ["es2020"],
+    "target": "esnext",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "strict": true,
+    "checkJs": true,
+    "outDir": "./.dist",
+    "incremental": true,
+    "allowUnreachableCode": false,
+    "esModuleInterop": true,
+    "noImplicitAny": true,
+    "skipLibCheck": true,
+  },
+  "types": ["node"],
+  "include": [
+    "./src/**/*",
+    "./config/**/*",
+  ],
+  "exclude": ["./.dist/**/*", "./scripts/**/*"],
+}
