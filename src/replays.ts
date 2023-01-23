@@ -52,17 +52,17 @@ export function md5(str: string) {
 
 export const Replays = new class {
 	readonly passwordCharacters = '0123456789abcdefghijklmnopqrstuvwxyz';
-	async prep(params: {[k: string]: any}) {
-		const id = params.id;
+	async prep(params: {[k: string]: unknown}) {
+		const id = toID(params.id);
 		let isPrivate = params.hidden ? 1 : 0;
 		if (params.hidden === 2) isPrivate = 2;
-		let p1 = Session.wordfilter(params.p1);
-		let p2 = Session.wordfilter(params.p2);
+		let p1 = Session.wordfilter(`${params.p1}`);
+		let p2 = Session.wordfilter(`${params.p2}`);
 		if (isPrivate) {
 			p1 = `!${p1}`;
 			p2 = `!${p2}`;
 		}
-		const {loghash, format} = params;
+		const {loghash, format} = params as Record<string, string>;
 		let rating = Number(params.rating);
 		if (params.serverid !== Config.mainserver) rating = 0;
 		const inputlog = params.inputlog || null;
@@ -72,7 +72,7 @@ export const Replays = new class {
 			format,
 			uploadtime: time(),
 			rating,
-			inputlog: Array.isArray(inputlog) ? inputlog.join('\n') : inputlog,
+			inputlog: Array.isArray(inputlog) ? inputlog.join('\n') : inputlog as string,
 			private: isPrivate,
 		}, SQL``, db);
 		return !!out.affectedRows;
@@ -227,9 +227,9 @@ export const Replays = new class {
 		return username.toLowerCase().replace(/[^A-Za-z0-9]+/g, '');
 	}
 
-	async upload(params: {[k: string]: any}, dispatcher: Dispatcher) {
-		let id = params.id;
-		if (!toID(id)) throw new ActionError('Battle ID needed.');
+	async upload(params: {[k: string]: unknown}, dispatcher: Dispatcher) {
+		let id = toID(params.id);
+		if (!id) throw new ActionError('Battle ID needed.');
 		const preppedReplay = await prepreplays.get('*', id, db);
 		const replay = await replays.get(['id', 'private', 'password'], id, db);
 		if (!preppedReplay) {
@@ -257,9 +257,10 @@ export const Replays = new class {
 		let fullid = id;
 		if (password) fullid += '-' + password + 'pw';
 
-		if (md5(stripNonAscii(params.log)) !== preppedReplay.loghash) {
-			params.log = params.log.replace('\r', '');
-			if (md5(stripNonAscii(params.log)) !== preppedReplay.loghash) {
+		let log = params.log as string;
+		if (md5(stripNonAscii(log)) !== preppedReplay.loghash) {
+			log = log.replace('\r', '');
+			if (md5(stripNonAscii(log)) !== preppedReplay.loghash) {
 				// Hashes don't match.
 
 				// Someone else tried to upload a replay of the same battle,
@@ -286,7 +287,7 @@ export const Replays = new class {
 		await replays.insert({
 			id, p1, p2, format, p1id, p2id,
 			formatid, uploadtime,
-			private: privacy, rating, log: params.log,
+			private: privacy, rating, log,
 			inputlog, password,
 		}, onDupe, false, db);
 
