@@ -196,7 +196,7 @@ export const Replays = new class {
 		}
 	}
 
-	async fullSearch(term: string, page = 0) {
+	async fullSearch(term: string, page = 0): Promise<ReplayData[]> {
 		if (page > 0) return [];
 
 		const patterns = term.split(',').map(subterm => {
@@ -244,7 +244,7 @@ export const Replays = new class {
 			}
 			return 'not found';
 		}
-		let password = null;
+		let password: string | null = null;
 		if (preppedReplay.private && preppedReplay.private !== 2) {
 			if (replay?.password) {
 				password = replay.password;
@@ -252,7 +252,7 @@ export const Replays = new class {
 				password = this.generatePassword();
 			}
 		}
-		if (params.password) password = params.password;
+		if (typeof params.password === 'string') password = params.password;
 
 		let fullid = id;
 		if (password) fullid += '-' + password + 'pw';
@@ -270,7 +270,7 @@ export const Replays = new class {
 			}
 		}
 
-		if (password?.length > 31) {
+		if (password && password.length > 31) {
 			dispatcher.setHeader('HTTP/1.1', '403 Forbidden');
 			return 'password must be 31 or fewer chars long';
 		}

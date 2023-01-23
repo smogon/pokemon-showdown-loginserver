@@ -215,7 +215,7 @@ export class DatabaseTable<T> {
 	}
 
 	// catch-alls for "we can't fit this query into any of the wrapper functions"
-	query<Z = unknown>(sql: SQLStatement, db?: PSDatabase) {
+	query<Z = T>(sql: SQLStatement, db?: PSDatabase) {
 		if (!db) db = psdb;
 		return db.query<Z>(sql);
 	}
