@@ -18,13 +18,19 @@ process.on('unhandledRejection', (err: Error) => {
 
 // graceful shutdown.
 process.on('SIGINT', () => {
+<<<<<<< HEAD
 	console.log(`Quitting...`);
+=======
+>>>>>>> 902725a (WIP)
 	void server.close().then(() => {
 		// we are no longer accepting requests and all requests have been handled.
 		// now it's safe to close DBs
 		for (const database of connectedDatabases) {
 			database.close();
 		}
+<<<<<<< HEAD
 		process.exit(0);
+=======
+>>>>>>> 902725a (WIP)
 	});
 });

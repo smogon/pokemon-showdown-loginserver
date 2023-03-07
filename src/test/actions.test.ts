@@ -7,6 +7,10 @@ import {strict as assert} from 'assert';
 import {Ladder} from '../ladder';
 import {toID} from '../utils';
 import * as utils from './test-utils';
+<<<<<<< HEAD
+=======
+import {SQL} from '../database';
+>>>>>>> 902725a (WIP)
 import * as tables from '../tables';
 
 const token = '42354y6dhgfdsretr';

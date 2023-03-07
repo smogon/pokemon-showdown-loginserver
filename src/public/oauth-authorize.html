@@ -1,0 +1,107 @@
+<html><head>
+
+	<meta charset="utf-8">
+
+	<title>Authorize application - Pokémon Showdown</title>
+	<meta http-equiv="X-UA-Compatible" content="IE=Edge,chrome=IE8">
+	<link rel="stylesheet" href="//play.pokemonshowdown.com/style/font-awesome.css">
+	<link rel="stylesheet" href="//pokemonshowdown.com/theme/panels.css?">
+	<link rel="stylesheet" href="//pokemonshowdown.com/theme/main.css?">
+
+	<div class="pfx-topbar" style="position: absolute; top: 0px; left: 0px; right: 0px;">
+		<div class="header">
+			<ul class="nav">
+				<li><a class="button nav-first" href="/"><img src="//pokemonshowdown.com/images/pokemonshowdownbeta.png" alt="Pokémon Showdown! (beta)"> Home</a></li>
+				<li><a class="button" href="//dex.pokemonshowdown.com/">Pokédex</a></li>
+				<li><a class="button" href="//replay.pokemonshowdown.com/">Replays</a></li>
+				<li><a class="button" href="//pokemonshowdown.com/ladder/">Ladder</a></li>
+				<li><a class="button nav-last" href="//pokemonshowdown.com/forums/">Forum</a></li>
+			</ul>
+			<ul class="nav nav-play">
+				<li><a class="button greenbutton nav-first nav-last" href="//play.pokemonshowdown.com/">Play</a></li>
+			</ul>
+			<div style="clear:both"></div>
+		</div>
+	</div>
+	<div class="pfx-panel" id="authpanel" style="position: absolute; inset: 51px 0px 0px; width: auto; height: auto; overflow: auto; display: block;"><div class="pfx-body ladder" style="margin-left: auto; margin-right: auto; max-width: 530px;">
+		<center>
+			<h2>Authorize {{client}}</h2><hr />
+			<div class="infobox">
+				{{client}} by {{client_name}} wants to access your Pokemon Showdown account.<br />
+				This is public data only, and will allow you to log in on their site using your Pokemon Showdown account for two weeks.<br /><br /><hr />
+				<a id="auth" class="button greenbutton nav-first nav-last">Authorize</a><br /><br />
+				<small>Authorizing will redirect you to {{redirect_uri}}</small>
+			</div>
+		</center>
+	</div></div><div></div>
+	<script src="//pokemonshowdown.com/js/jquery-1.9.1.min.js"></script>
+	<script src="//pokemonshowdown.com/js/underscore.js"></script>
+	<script src="//pokemonshowdown.com/js/backbone.js"></script>
+	<script src="//pokemonshowdown.com/js/panels.js"></script>
+
+	<script src="//pokemonshowdown.com/js/ladder.js?b23"></script>
+	<script>
+		var safeJSON = function (callback) {
+			return function (data) {
+				if (data.length < 1) return;
+				if (data[0] == ']') data = data.substr(1);
+				return callback(JSON.parse(data));
+			};
+		};
+		var params = new URLSearchParams(location.search);
+		var tokenName = 'ps-' + params.get('client_id') + "-token";
+		var token = localStorage.getItem(tokenName);
+		if (token) {
+			params.set('token', token);
+		}
+		var $el = $('#auth');
+		var acting = false;
+
+		function getAssertion() {
+			$.get('/api/oauth/api/getassertion', {
+				token: params.get('token'),
+				client_id: params.get('client_id'),
+				challenge: params.get('challenge'),
+			}, safeJSON(function (data) {
+				if (data.success === false) {
+					params.delete('token');
+					localStorage.removeItem(tokenName);
+					$('#authpanel').css({display: ''});
+					return $el.on('click', () => { // this should send a req to get a token
+						if (acting) return;
+						acting = true;
+						authorize();
+					});
+				}
+				var redirect = new URL(params.redirect_uri);
+				redirect.search = new URLSearchParams({assertion: data.assertion});
+				location.replace(redirect);
+			}));
+		}
+
+		function authorize() {
+			$.get('/api/oauth/api/authorize', {
+				client_id: params.get('client_id'),
+			}, safeJSON(function (data) {
+				if (data.actionerror) {
+					return alert(`Error: ${data.actionerror}`);
+				}
+				params.set('token', data.token);
+				localStorage.setItem(tokenName, token);
+				getAssertion();
+			}));
+		}
+
+		if (!params.get('token')) {
+			$el.on('click', () => { // this should send a req to get a token
+				if (acting) return;
+				acting = true;
+				authorize();
+			});
+		} else {
+			$('#authpanel').css({display: 'none'});
+			getAssertion();
+		}
+	</script>
+
+</body></html>
