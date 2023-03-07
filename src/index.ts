@@ -17,11 +17,12 @@ process.on('unhandledRejection', (err: Error) => {
 });
 
 // graceful shutdown.
-process.on('SIGINT', async () => {
-	await server.close()
-	// we are no longer accepting requests and all requests have been handled.
-	// now it's safe to close DBs
-	for (const database of databases) {
-		database.close();
-	}
+process.on('SIGINT', () => {
+	void server.close().then(() => {
+		// we are no longer accepting requests and all requests have been handled.
+		// now it's safe to close DBs
+		for (const database of databases) {
+			database.close();
+		}
+	});
 });

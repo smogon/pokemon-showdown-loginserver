@@ -122,7 +122,7 @@ export class DatabaseTable<T> {
 			query.append(' WHERE ');
 			query.append(where);
 		}
-		return this.query<T>(query, db);
+		return this.query(query, db);
 	}
 	get(entries: string | string[], keyId: SQLInput, db?: PSDatabase) {
 		const query = SQL``;

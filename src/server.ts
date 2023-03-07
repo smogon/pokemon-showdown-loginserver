@@ -56,7 +56,7 @@ export class Router {
 
 		this.server.listen(port);
 	}
-	static crashlog(error: object, source = '', details = {}) {
+	static crashlog(error: unknown, source = '', details = {}) {
 		if (!Config.pspath) {
 			return console.log(`${source} crashed`, error, details);
 		}

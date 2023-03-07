@@ -3,7 +3,6 @@
  * Original design by Zarel in https://github.com/Zarel/telepic/blob/master/server/db.ts, redone by Mia
  * @author mia-pi-git
  */
-import {Config} from './config-loader';
 import {DatabaseTable} from './database';
 
 import type {LadderEntry} from './ladder';
