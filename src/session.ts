@@ -12,7 +12,7 @@ import {ActionError, Dispatcher} from './dispatcher';
 import * as gal from 'google-auth-library';
 import {SQL} from './database';
 import {toID} from './server';
-import {ladder, loginthrottle, sessions, users, usermodlog} from './tables';
+import {psdb, ladder, loginthrottle, sessions, users, usermodlog} from './tables';
 import type {User} from './user';
 
 const SID_DURATION = 2 * 7 * 24 * 60 * 60;
@@ -427,14 +427,13 @@ export class Session {
 		if (!session) {
 			return;
 		}
-		const rows = await users.query<{sid: string; timeout: number}>(
+		const res = await psdb.queryOne<{sid: string; timeout: number}>(
 			SQL`SELECT sid, timeout, ntbb_users.* 
 			FROM ntbb_sessions, ntbb_users
 			WHERE \`session\` = ${session}
 			AND ntbb_sessions.userid = ntbb_users.userid
 			 LIMIT 1`
 		);
-		const res = rows?.[0];
 		if (!res || !(await bcrypt.compare(sid, res.sid))) {
 			// invalid session ID
 			this.deleteCookie();
