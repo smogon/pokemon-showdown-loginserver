@@ -80,8 +80,8 @@ export class Session {
 		const ip = this.dispatcher.getIp();
 		const timestamp = time() - period;
 		const result = await users.selectOne<{regcount: number}>(
-			SQL`COUNT(*) AS regcount`, SQL`WHERE \`ip\` = ${ip} AND \`registertime\` > ${timestamp}`
-		);
+			SQL`COUNT(*) AS regcount`
+		)`WHERE \`ip\` = ${ip} AND \`registertime\` > ${timestamp}`;
 		return result?.['regcount'] || 0;
 	}
 	async addUser(username: string, password: string) {
@@ -201,7 +201,7 @@ export class Session {
 				} else if (banstate === 0) {
 					// should we update autoconfirmed status? check to see if it's been long enough
 					if (regtime && time() - regtime > (7 * 24 * 60 * 60)) {
-						const ladders = await ladder.selectOne(['formatid'], SQL`WHERE userid = ${userid} AND w != 0`);
+						const ladders = await ladder.selectOne(['formatid'])`WHERE userid = ${userid} AND w != 0`;
 						if (ladders) {
 							userType = '4';
 							void users.update(userid, {banstate: -10});
@@ -319,7 +319,7 @@ export class Session {
 		await users.update(userid, {
 			passwordhash, nonce: null,
 		});
-		await sessions.deleteAll(SQL`WHERE userid = ${userid}`);
+		await sessions.deleteAll()`WHERE userid = ${userid}`;
 		if (this.dispatcher.user.id === userid) {
 			await this.login(name, pass);
 		}
@@ -428,12 +428,11 @@ export class Session {
 			return;
 		}
 		const res = await psdb.queryOne<{sid: string; timeout: number}>(
-			SQL`SELECT sid, timeout, ntbb_users.* 
+		)`SELECT sid, timeout, ntbb_users.* 
 			FROM ntbb_sessions, ntbb_users
 			WHERE \`session\` = ${session}
 			AND ntbb_sessions.userid = ntbb_users.userid
-			 LIMIT 1`
-		);
+			 LIMIT 1`;
 		if (!res || !(await bcrypt.compare(sid, res.sid))) {
 			// invalid session ID
 			this.deleteCookie();
@@ -441,7 +440,7 @@ export class Session {
 		}
 		if (res.timeout < ctime) {
 			// session expired
-			await sessions.deleteAll(SQL`WHERE timeout = ${ctime}`);
+			await sessions.deleteAll()`WHERE timeout = ${ctime}`;
 			this.deleteCookie();
 			return;
 		}

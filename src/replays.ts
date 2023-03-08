@@ -131,7 +131,7 @@ export const Replays = new class {
 			if (args.username2) {
 				const userid2 = toID(args.username2);
 				if (format) {
-					return replays.query(SQL`(SELECT uploadtime, id, format, p1, p2, password FROM ps_replays 
+					return replays.query()`(SELECT uploadtime, id, format, p1, p2, password FROM ps_replays 
 						FORCE INDEX (p1) 
 						WHERE private = ${isPrivate} AND p1id = ${userid} 
 						AND p2id = ${userid2} AND format = ${format} 
@@ -143,9 +143,9 @@ export const Replays = new class {
 						WHERE private = ${isPrivate} AND p1id = ${userid2} AND p2id = ${userid} 
 						AND format = ${format}
 						 ORDER BY ${order} DESC)
-						 ORDER BY ${order} DESC LIMIT ${limit1}, 51;`);
+						 ORDER BY ${order} DESC LIMIT ${limit1}, 51;`;
 				} else {
-					return replays.query(SQL`(SELECT uploadtime, id, format, p1, p2, password FROM ps_replays 
+					return replays.query()`(SELECT uploadtime, id, format, p1, p2, password FROM ps_replays 
 						FORCE INDEX (p1) 
 						WHERE private = ${isPrivate} AND p1id = ${userid} AND p2id = ${userid2}
 						 ORDER BY ${order} DESC)
@@ -153,11 +153,11 @@ export const Replays = new class {
 						(SELECT uploadtime, id, format, p1, p2, password FROM ps_replays FORCE INDEX (p1) 
 						WHERE private = ${isPrivate} AND p1id = ${userid2} AND p2id = ${userid} 
 						ORDER BY ${order} DESC)
-						 ORDER BY ${order} DESC LIMIT ${limit1}, 51;`);
+						 ORDER BY ${order} DESC LIMIT ${limit1}, 51;`;
 				}
 			} else {
 				if (format) {
-					return replays.query(SQL`(SELECT uploadtime, id, format, p1, p2, password FROM ps_replays 
+					return replays.query()`(SELECT uploadtime, id, format, p1, p2, password FROM ps_replays 
 						FORCE INDEX (p1) 
 						WHERE private = ${isPrivate} AND p1id = ${userid} AND format = ${format} 
 						ORDER BY ${order} DESC) 
@@ -165,27 +165,27 @@ export const Replays = new class {
 						(SELECT uploadtime, id, format, p1, p2, password FROM ps_replays FORCE INDEX (p2)
 						 WHERE private = ${isPrivate} AND p2id = ${userid} AND format = ${format} 
 						ORDER BY ${order} DESC)
-						 ORDER BY ${order} DESC LIMIT ${limit1}, 51;`);
+						 ORDER BY ${order} DESC LIMIT ${limit1}, 51;`;
 				} else {
-					return replays.query(SQL`(SELECT uploadtime, id, format, p1, p2, password FROM ps_replays 
+					return replays.query()`(SELECT uploadtime, id, format, p1, p2, password FROM ps_replays 
 						FORCE INDEX (p1) 
 						WHERE private = ${isPrivate} AND p1id = ${userid} ORDER BY ${order} DESC)
 						 UNION 
 						(SELECT uploadtime, id, format, p1, p2, password FROM ps_replays FORCE INDEX (p2) 
 						WHERE private = ${isPrivate} AND p2id = ${userid} ORDER BY ${order} DESC)
-						 ORDER BY ${order} DESC LIMIT ${limit1}, 51;`);
+						 ORDER BY ${order} DESC LIMIT ${limit1}, 51;`;
 				}
 			}
 		}
 
 		if (args.byRating) {
-			return replays.query(SQL`SELECT uploadtime, id, format, p1, p2, rating, password 
+			return replays.query()`SELECT uploadtime, id, format, p1, p2, rating, password 
 				FROM ps_replays FORCE INDEX (top) 
-				WHERE private = ${isPrivate} AND formatid = ${format} ORDER BY rating DESC LIMIT ${limit1}, 51`);
+				WHERE private = ${isPrivate} AND formatid = ${format} ORDER BY rating DESC LIMIT ${limit1}, 51`;
 		} else {
-			return replays.query(SQL`SELECT uploadtime, id, format, p1, p2, rating, password 
+			return replays.query()`SELECT uploadtime, id, format, p1, p2, rating, password 
 				FROM ps_replays FORCE INDEX (format) 
-				WHERE private = ${isPrivate} AND formatid = ${format} ORDER BY uploadtime DESC LIMIT ${limit1}, 51`);
+				WHERE private = ${isPrivate} AND formatid = ${format} ORDER BY uploadtime DESC LIMIT ${limit1}, 51`;
 		}
 	}
 
@@ -200,17 +200,16 @@ export const Replays = new class {
 
 		const secondPattern = patterns.length >= 2 ? SQL`AND log LIKE ${patterns[1]} ` : undefined;
 
-		return replays.query(SQL`SELECT /*+ MAX_EXECUTION_TIME(10000) */ 
+		return replays.query()`SELECT /*+ MAX_EXECUTION_TIME(10000) */ 
 			uploadtime, id, format, p1, p2, password FROM ps_replays 
 			FORCE INDEX (recent) WHERE private = 0 AND log LIKE ${patterns[0]} ${secondPattern}
-			ORDER BY uploadtime DESC LIMIT 10;`);
+			ORDER BY uploadtime DESC LIMIT 10;`;
 	}
 
 	async recent() {
 		return replays.selectAll(
-			SQL`uploadtime, id, format, p1, p2`,
-			SQL`FORCE INDEX (recent) WHERE private = 0 ORDER BY uploadtime DESC LIMIT 50`
-		);
+			SQL`uploadtime, id, format, p1, p2`
+		)`FORCE INDEX (recent) WHERE private = 0 ORDER BY uploadtime DESC LIMIT 50`;
 	}
 
 	normalizeUsername(username: string) {
@@ -280,7 +279,7 @@ export const Replays = new class {
 			inputlog = ${inputlog}, rating = ${rating},
 			private = ${privacy}, \`password\` = ${password}`);
 
-		await prepreplays.deleteOne(SQL`WHERE id = ${id} AND loghash = ${preppedReplay.loghash}`);
+		await prepreplays.deleteOne()`WHERE id = ${id} AND loghash = ${preppedReplay.loghash}`;
 
 		return 'success:' + fullid;
 	}

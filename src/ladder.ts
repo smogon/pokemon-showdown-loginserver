@@ -7,7 +7,6 @@
 import {time} from './session';
 import {toID} from './server';
 import {ladder} from './tables';
-import {SQL} from './database';
 import type {User} from './user';
 
 export interface LadderEntry {
@@ -65,16 +64,16 @@ export class NTBBLadder {
 	clearRating(name: string | User | FakeUser) {
 		return ladder.updateOne({
 			elo: 1000, col1: 0, w: 0, l: 0, t: 0,
-		}, SQL`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`);
+		})`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
 	}
 	clearWL(name: User | string) {
 		return ladder.updateOne({
 			w: 0, l: 0, t: 0,
-		}, SQL`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`);
+		})`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
 	}
 	async getRating(user: User | FakeUser, create = false) {
 		if (!user.rating) {
-			const data = await ladder.selectOne(null, SQL`WHERE userid = ${user.id} AND formatid = ${this.formatid}`);
+			const data = await ladder.selectOne()`WHERE userid = ${user.id} AND formatid = ${this.formatid}`;
 
 			if (!data) {
 				if (!create) {
@@ -114,7 +113,7 @@ export class NTBBLadder {
 	}
 	async getAllRatings(user: User | FakeUser) {
 		if (!user.ratings) {
-			const res = await ladder.selectAll(null, SQL`WHERE userid = ${user.id}`);
+			const res = await ladder.selectAll()`WHERE userid = ${user.id}`;
 			if (!res) {
 				return false;
 			}
@@ -149,11 +148,11 @@ export class NTBBLadder {
 				// an indexed query for additional rows and filter them down further. This is obviously *not* guaranteed
 				// to return exactly $limit results, but should be 'good enough' in practice.
 				const overfetch = limit * 2;
-				res = await ladder.query(SQL`SELECT * FROM
+				res = await ladder.query()`SELECT * FROM
 					(SELECT * FROM ntbb_ladder WHERE formatid = ${this.formatid} ORDER BY elo DESC LIMIT ${limit})
-					AS unusedalias WHERE userid LIKE ${prefix} LIMIT ${overfetch}`);
+					AS unusedalias WHERE userid LIKE ${prefix} LIMIT ${overfetch}`;
 			} else {
-				res = await ladder.selectAll(null, SQL`WHERE formatid = ${this.formatid} ORDER BY elo DESC`);
+				res = await ladder.selectAll()`WHERE formatid = ${this.formatid} ORDER BY elo DESC`;
 			}
 
 			for (const row of res) {
@@ -177,7 +176,7 @@ export class NTBBLadder {
 		return top;
 	}
 	clearAllRatings() {
-		return ladder.deleteAll(SQL`WHERE formatid = ${this.formatid}`);
+		return ladder.deleteAll()`WHERE formatid = ${this.formatid}`;
 	}
 
 	async saveRating(user: User | FakeUser) {

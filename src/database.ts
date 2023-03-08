@@ -9,8 +9,8 @@
 import * as mysql from 'mysql2';
 
 export type BasicSQLValue = string | number | null;
-export type SQLValue =
-	BasicSQLValue | SQLStatement | {[k: string]: BasicSQLValue | SQLStatement} | BasicSQLValue[] |undefined;
+export type SQLRow = {[k: string]: BasicSQLValue};
+export type SQLValue = BasicSQLValue | SQLStatement | PartialOrSQL<SQLRow> | BasicSQLValue[] | undefined;
 
 export class SQLName {
 	name: string;
@@ -111,7 +111,7 @@ export class SQLStatement {
  * * `` SQL`INSERT INTO table (\`${['a', 'b']}\`) VALUES (${[1, 2]})` ``
  *   * `` 'INSERT INTO table (`a`, `b`) VALUES (1, 2)' ``
  */
-export function SQL(strings: TemplateStringsArray, ...values: (SQLValue | SQLStatement)[]) {
+export function SQL(strings: TemplateStringsArray, ...values: SQLValue[]) {
 	return new SQLStatement(strings, values);
 }
 
@@ -131,7 +131,7 @@ export class Database {
 		this.connection = mysql.createPool(config);
 		connectedDatabases.push(this);
 	}
-	resolveSQL(query: SQLStatement): [string, BasicSQLValue[]] {
+	resolveSQL(query: SQLStatement): [query: string, values: BasicSQLValue[]] {
 		let sql = query.sql[0];
 		const values = [];
 		for (let i = 0; i < query.values.length; i++) {
@@ -145,12 +145,16 @@ export class Database {
 		}
 		return [sql, values];
 	}
-	query<T = ResultRow>(query: SQLStatement): Promise<T[]> {
+	query<T = ResultRow>(sql: SQLStatement): Promise<T[]>;
+	query<T = ResultRow>(): (strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<T[]>;
+	query<T = ResultRow>(sql?: SQLStatement) {
+		if (!sql) return (strings: any, ...rest: any) => this.query<T>(new SQLStatement(strings, rest));
+
 		return new Promise<T[]>((resolve, reject) => {
-			const [sql, values] = this.resolveSQL(query);
-			this.connection.query(sql, values, (e, results: any) => {
+			const [query, values] = this.resolveSQL(sql);
+			this.connection.query(query, values, (e, results: any) => {
 				if (e) {
-					return reject(new Error(`${e.message} (${query.sql}) (${query.values}) [${e.code}]`));
+					return reject(new Error(`${e.message} (${query}) (${values}) [${e.code}]`));
 				}
 				if (Array.isArray(results)) {
 					for (const row of results) {
@@ -163,14 +167,22 @@ export class Database {
 			});
 		});
 	}
-	async queryOne<T = ResultRow>(query: SQLStatement): Promise<T | undefined> {
-		return (await this.query(query))?.[0] as T;
+	queryOne<T = ResultRow>(sql: SQLStatement): Promise<T | undefined>;
+	queryOne<T = ResultRow>(): (strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<T | undefined>;
+	queryOne<T = ResultRow>(sql?: SQLStatement) {
+		if (!sql) return (strings: any, ...rest: any) => this.queryOne<T>(new SQLStatement(strings, rest));
+
+		return this.query<T>(sql).then(res => res?.[0]);
 	}
-	async queryOk(query: SQLStatement): Promise<mysql.OkPacket> {
-		if (!['UPDATE', 'INSERT', 'DELETE', 'REPLACE'].some(i => query.sql.includes(i))) {
+	queryExec(sql: SQLStatement): Promise<mysql.OkPacket>;
+	queryExec(): (strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<mysql.OkPacket>;
+	queryExec(sql?: SQLStatement) {
+		if (!sql) return (strings: any, ...rest: any) => this.queryExec(new SQLStatement(strings, rest));
+
+		if (!['UPDATE', 'INSERT', 'DELETE', 'REPLACE'].some(i => sql.sql.includes(i))) {
 			throw new Error('Use `query` or `get` for non-insertion / update statements.');
 		}
-		return this.queryOne(query) as Promise<mysql.OkPacket>;
+		return this.queryOne<mysql.OkPacket>(sql);
 	}
 	close() {
 		this.connection.end();
@@ -181,6 +193,7 @@ type PartialOrSQL<T> = {
 	[P in keyof T]?: T[P] | SQLStatement;
 };
 
+// Row extends SQLRow but TS doesn't support closed types so we can't express this
 export class DatabaseTable<Row> {
 	db: Database;
 	name: string;
@@ -200,54 +213,74 @@ export class DatabaseTable<Row> {
 
 	// raw
 
-	query<T = Row>(sql: SQLStatement) {
-		return this.db.query<T>(sql);
+	query<T = Row>(sql: SQLStatement): Promise<T[]>;
+	query<T = Row>(): (strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<T[]>;
+	query<T = Row>(sql?: SQLStatement) {
+		return this.db.query<T>(sql as any) as any;
 	}
-	queryOk(sql: SQLStatement) {
-		return this.db.queryOk(sql);
+	queryOne<T = Row>(sql: SQLStatement): Promise<T | undefined>;
+	queryOne<T = Row>(): (strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<T | undefined>;
+	queryOne<T = Row>(sql?: SQLStatement) {
+		return this.db.queryOne<T>(sql as any) as any;
+	}
+	queryExec(sql: SQLStatement): Promise<mysql.OkPacket>;
+	queryExec(): (strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<mysql.OkPacket>;
+	queryExec(sql?: SQLStatement) {
+		return this.db.queryExec(sql as any) as any;
 	}
 
 	// low-level
 
-	selectAll<T = Row>(entries?: string[] | null | SQLStatement, where?: SQLStatement): Promise<T[]> {
+	selectAll<T = Row>(entries: string[] | null | SQLStatement = null):
+	(strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<T[]> {
 		if (entries === null) entries = SQL`*`;
 		if (Array.isArray(entries)) entries = SQL`\`${entries}\``;
-		return this.query<T>(SQL`SELECT ${entries} FROM \`${this.name}\` ${where}`);
+		return (strings, ...rest) =>
+			this.query<T>()`SELECT ${entries} FROM \`${this.name}\` ${new SQLStatement(strings, rest)}`;
 	}
-	async selectOne<T = Row>(entries?: string[] | null | SQLStatement, where?: SQLStatement): Promise<T | undefined> {
-		where = (where ? where.append(SQL` LIMIT 1`) : SQL` LIMIT 1`);
-		return (await this.selectAll<T>(entries, where))?.[0];
+	selectOne<T = Row>(entries?: string[] | null | SQLStatement):
+	(strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<T | undefined> {
+		return async (strings, ...rest) => {
+			const where = new SQLStatement(strings, rest);
+			return (await this.selectAll<T>(entries)`${where} LIMIT 1`)?.[0];
+		};
 	}
-	updateAll(partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
-		return this.queryOk(SQL`UPDATE \`${this.name}\` SET ${partialRow as SQLValue} ${where}`);
+	updateAll(partialRow: PartialOrSQL<Row>):
+	(strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<mysql.OkPacket> {
+		return (strings, ...rest) =>
+			this.queryExec()`UPDATE \`${this.name}\` SET ${partialRow as any} ${new SQLStatement(strings, rest)}`;
 	}
-	updateOne(partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
-		where = (where ? where.append(SQL` LIMIT 1`) : SQL` LIMIT 1`);
-		return this.updateAll(partialRow, where);
+	updateOne(partialRow: PartialOrSQL<Row>):
+	(strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<mysql.OkPacket> {
+		return (s, ...r) =>
+			this.queryExec()`UPDATE \`${this.name}\` SET ${partialRow as any} ${new SQLStatement(s, r)} LIMIT 1`;
 	}
-	deleteAll(where?: SQLStatement) {
-		return this.queryOk(SQL`DELETE FROM \`${this.name}\` ${where}`);
+	deleteAll():
+	(strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<mysql.OkPacket> {
+		return (strings, ...rest) =>
+			this.queryExec()`DELETE FROM \`${this.name}\` ${new SQLStatement(strings, rest)}`;
 	}
-	deleteOne(where: SQLStatement) {
-		where = (where ? where.append(SQL` LIMIT 1`) : SQL` LIMIT 1`);
-		return this.deleteAll(where);
-	}
-	insert(partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
-		return this.queryOk(SQL`INSERT INTO \`${this.name}\` (${partialRow as SQLValue}) ${where}`);
-	}
-	replace(partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
-		return this.queryOk(SQL`REPLACE INTO \`${this.name}\` (${partialRow as SQLValue}) ${where}`);
+	deleteOne():
+	(strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<mysql.OkPacket> {
+		return (strings, ...rest) =>
+			this.queryExec()`DELETE FROM \`${this.name}\` ${new SQLStatement(strings, rest)} LIMIT 1`;
 	}
 
 	// high-level
 
+	insert(partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
+		return this.queryExec()`INSERT INTO \`${this.name}\` (${partialRow as SQLValue}) ${where}`;
+	}
+	replace(partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
+		return this.queryExec()`REPLACE INTO \`${this.name}\` (${partialRow as SQLValue}) ${where}`;
+	}
 	get(primaryKey: BasicSQLValue, entries?: string[]) {
-		return this.selectOne(entries, SQL`WHERE \`${this.primaryKeyName}\` = ${primaryKey}`);
+		return this.selectOne(entries)`WHERE \`${this.primaryKeyName}\` = ${primaryKey}`;
 	}
 	delete(primaryKey: BasicSQLValue) {
-		return this.deleteAll(SQL`WHERE \`${this.primaryKeyName}\` = ${primaryKey} LIMIT 1`);
+		return this.deleteAll()`WHERE \`${this.primaryKeyName}\` = ${primaryKey} LIMIT 1`;
 	}
 	update(primaryKey: BasicSQLValue, data: PartialOrSQL<Row>) {
-		return this.updateAll(data, SQL`WHERE \`${this.primaryKeyName}\` = ${primaryKey} LIMIT 1`);
+		return this.updateAll(data)`WHERE \`${this.primaryKeyName}\` = ${primaryKey} LIMIT 1`;
 	}
 }
