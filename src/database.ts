@@ -197,11 +197,11 @@ type PartialOrSQL<T> = {
 export class DatabaseTable<Row> {
 	db: Database;
 	name: string;
-	primaryKeyName: string;
+	primaryKeyName: keyof Row & string;
 	constructor(
 		db: Database,
 		name: string,
-		primaryKeyName: string
+		primaryKeyName: keyof Row & string
 	) {
 		this.db = db;
 		this.name = db.prefix + name;
@@ -270,6 +270,20 @@ export class DatabaseTable<Row> {
 
 	insert(partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
 		return this.queryExec()`INSERT INTO \`${this.name}\` (${partialRow as SQLValue}) ${where}`;
+	}
+	async tryInsert(partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
+		try {
+			return await this.insert(partialRow, where);
+		} catch (err) {
+			if ((err as any).code === 'ER_DUP_ENTRY') {
+				return undefined;
+			}
+			throw err;
+		}
+	}
+	set(primaryKey: BasicSQLValue, partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
+		partialRow[this.primaryKeyName] = primaryKey as any;
+		return this.replace(partialRow, where);
 	}
 	replace(partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
 		return this.queryExec()`REPLACE INTO \`${this.name}\` (${partialRow as SQLValue}) ${where}`;
