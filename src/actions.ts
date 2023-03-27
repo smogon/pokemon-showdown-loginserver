@@ -445,7 +445,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (!Config.standings[standing]) {
 			throw new ActionError("Invalid standing.");
 		}
-		const matches = await tables.users.selectAll(['userid'])`ip = ${ip}`;
+		const matches = await tables.users.selectAll(['userid'])`WHERE ip = ${ip}`;
 		for (const {userid} of matches) {
 			await tables.users.update(userid, {banstate: standing});
 			await tables.usermodlog.insert({
@@ -471,7 +471,7 @@ export const actions: {[k: string]: QueryHandler} = {
 			throw new ActionError(`User ${userid} not found.`);
 		}
 		return {
-			matches: await tables.users.selectAll(['userid', 'banstate'])`ip = ${res.ip}`,
+			matches: await tables.users.selectAll(['userid', 'banstate'])`WHERE ip = ${res.ip}`,
 		};
 	},
 	async setemail(params) {
