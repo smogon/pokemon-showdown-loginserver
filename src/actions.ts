@@ -523,7 +523,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (!email) {
 			throw new ActionError(`Invalid email sent.`);
 		}
-		const data = await tables.users.selectOne()`email = ${email}`;
+		const data = await tables.users.selectOne()`WHERE email = ${email}`;
 		if (!data) {
 			// no user associated with that email.
 			// ...pretend like it succeeded (we don't wanna leak that it's in use, after all)

@@ -513,7 +513,7 @@ export class Session {
 	}
 	async findPendingReset(name: string) {
 		const id = toID(name);
-		const sids = await sessions.selectAll()`userid = ${id}`;
+		const sids = await sessions.selectAll()`WHERE userid = ${id}`;
 		// not a fan of this but sids are normally different lengths. have to be, iirc.
 		return sids.some(({sid}) => sid.length === (PASSWORD_RESET_TOKEN_SIZE * 2));
 	}
