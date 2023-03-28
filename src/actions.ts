@@ -506,7 +506,7 @@ export const actions: {[k: string]: QueryHandler} = {
 	async 'oauth/register'(params) {
 		this.response.setHeader('Content-Type', 'text/html');
 		try {
-			let content = await fs.readFile(
+			const content = await fs.readFile(
 				__dirname + "/../../src/public/oauth-register.html",
 				'utf-8'
 			);
@@ -524,7 +524,7 @@ export const actions: {[k: string]: QueryHandler} = {
 			throw new ActionError("You're not logged in.");
 		}
 		const clientInfo = await getOAuthClient(params.client_id);
-		let existing = await tables.oauthTokens.selectOne()`WHERE client = ${clientInfo.id} AND owner = ${this.user.id}`
+		const existing = await tables.oauthTokens.selectOne()`WHERE client = ${clientInfo.id} AND owner = ${this.user.id}`;
 		if (existing) {
 			if (Date.now() - existing.time > 2 * 7 * 24 * 60 * 1000) { // 2w
 				await tables.oauthTokens.delete(existing.id);
@@ -548,7 +548,9 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (!token) {
 			throw new ActionError('No token provided.');
 		}
-		const tokenEntry = await tables.oauthTokens.selectOne()`WHERE owner = ${this.user.id} and client = ${client.id}`;
+		const tokenEntry = await (
+			tables.oauthTokens.selectOne()
+		)`WHERE owner = ${this.user.id} and client = ${client.id}`;
 		if (!tokenEntry || tokenEntry.id !== token) {
 			return {success: false};
 		}
@@ -562,7 +564,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (!(params.clientName ||= "").length) {
 			throw new ActionError("No client name was provided.");
 		}
-		let existing = await tables.oauthClients.selectOne()`WHERE owner = ${this.user.id}`;
+		const existing = await tables.oauthClients.selectOne()`WHERE owner = ${this.user.id}`;
 		if (existing) {
 			throw new ActionError("You may only have one OAuth application per account.");
 		}
