@@ -556,7 +556,8 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (!tokenEntry || tokenEntry.id !== token) {
 			return {success: false};
 		}
-		return this.session.getAssertion(this.user.id, undefined, this.user, params.challenge);
+		const challstr = crypto.randomBytes(20).toString('hex');
+		return this.session.getAssertion(this.user.id, undefined, this.user, challstr);
 	},
 
 	async 'oauth/api/register'(params) {
