@@ -524,7 +524,9 @@ export const actions: {[k: string]: QueryHandler} = {
 			throw new ActionError("You're not logged in.");
 		}
 		const clientInfo = await getOAuthClient(params.client_id);
-		const existing = await tables.oauthTokens.selectOne()`WHERE client = ${clientInfo.id} AND owner = ${this.user.id}`;
+		const existing = await (
+			tables.oauthTokens.selectOne()
+		)`WHERE client = ${clientInfo.id} AND owner = ${this.user.id}`;
 		if (existing) {
 			if (Date.now() - existing.time > 2 * 7 * 24 * 60 * 1000) { // 2w
 				await tables.oauthTokens.delete(existing.id);
