@@ -567,6 +567,9 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (!(params.clientName ||= "").length) {
 			throw new ActionError("No client name was provided.");
 		}
+		if (params.clientName.length > 40) {
+			throw new ActionError("Client name must be 40 characters or less.");
+		}
 		const existing = await tables.oauthClients.selectOne()`WHERE owner = ${this.user.id}`;
 		if (existing) {
 			throw new ActionError("You may only have one OAuth application per account.");
