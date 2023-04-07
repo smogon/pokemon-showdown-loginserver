@@ -105,7 +105,7 @@ export const userstatshistory = new DatabaseTable<{
 
 export const oauthClients = new DatabaseTable<{
 	owner: string; // ps username
-	clientName: string;
+	client_title: string;
 	id: string; // hex hash
 }>(psdb, 'oauth_clients', 'id');
 

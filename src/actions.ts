@@ -492,7 +492,7 @@ export const actions: {[k: string]: QueryHandler} = {
 			);
 			// table keys are owner, clientName, id
 			// expects client, client_name, redirect_uri
-			content = content.replace(/\{\{client\}\}/g, clientInfo.clientName);
+			content = content.replace(/\{\{client\}\}/g, clientInfo.client_title);
 			content = content.replace(/\{\{client_name\}\}/g, clientInfo.owner);
 			content = content.replace(/\{\{redirect_uri\}\}/g, params.redirect_uri);
 			this.response.setHeader('Content-Length', content.length);
@@ -574,7 +574,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		const id = crypto.randomBytes(16).toString('hex');
 		await tables.oauthClients.insert({
 			id,
-			clientName: params.clientName,
+			client_title: params.clientName,
 			owner: this.user.id,
 		});
 		return {success: id};
