@@ -328,6 +328,27 @@ export const actions: {[k: string]: QueryHandler} = {
 		return {updated: update, success: true};
 	},
 
+	async rebuildclient() {
+		await this.requireMainServer();
+
+		if (!Config.restartip || !Config.clientpath) {
+			throw new ActionError(`This feature is disabled.`);
+		}
+		if (this.getIp() !== Config.restartip) {
+			throw new ActionError(`Access denied for ${this.getIp()}.`);
+		}
+		let update;
+		try {
+			update = await updateserver(Config.clientpath);
+		} catch (e: any) {
+			throw new ActionError(e.message);
+		}
+		let stderr;
+		[, , stderr] = await bash('node build', Config.clientpath);
+		if (stderr) throw new ActionError(`Compilation failed:\n${stderr}`);
+		return {updated: update, success: true};
+	},
+
 	async updatenamecolor(params) {
 		await this.requireMainServer();
 
