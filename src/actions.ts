@@ -343,8 +343,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		} catch (e: any) {
 			throw new ActionError(e.message);
 		}
-		let stderr;
-		[, , stderr] = await bash('node build', Config.clientpath);
+		const [, , stderr] = await bash('node build', Config.clientpath);
 		if (stderr) throw new ActionError(`Compilation failed:\n${stderr}`);
 		return {updated: update, success: true};
 	},
