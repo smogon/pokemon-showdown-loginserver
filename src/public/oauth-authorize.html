@@ -3,74 +3,10 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width">
 
-		<title>External link - Pokémon Showdown!</title>
+		<title>Authorize application - Pokémon Showdown!</title>
 
-		<link rel="stylesheet" href="/style/global.css">
+		<link rel="stylesheet" href="//pokemonshowdown.com/style/global.css">
 		<script src="//pokemonshowdown.com/js/jquery-1.9.1.min.js"></script>
-		<script>
-			var safeJSON = function (callback) {
-				return function (data) {
-					if (data.length < 1) return;
-					if (data[0] == ']') data = data.substr(1);
-					return callback(JSON.parse(data));
-				};
-			};
-			var params = new URLSearchParams(location.search);
-			var tokenName = 'ps-' + params.get('client_id') + "-token";
-			var token = localStorage.getItem(tokenName);
-			if (token) {
-				params.set('token', token);
-			}
-			var $el = $('#auth');
-			var acting = false;
-
-			function getAssertion() {
-				$.get('/api/oauth/api/getassertion', {
-					token: params.get('token'),
-					client_id: params.get('client_id'),
-					challenge: params.get('challenge'),
-				}, safeJSON(function (data) {
-					if (data.success === false) {
-						params.delete('token');
-						localStorage.removeItem(tokenName);
-						$('#authpanel').css({display: ''});
-						return $el.on('click', () => { // this should send a req to get a token
-							if (acting) return;
-							acting = true;
-							authorize();
-						});
-					}
-					var redirect = new URL(params.redirect_uri);
-					redirect.search = new URLSearchParams({assertion: data.assertion});
-					location.replace(redirect);
-				}));
-			}
-
-			function authorize() {
-				$.get('/api/oauth/api/authorize', {
-					client_id: params.get('client_id'),
-				}, safeJSON(function (data) {
-					if (data.actionerror) {
-						return alert(`Error: ${data.actionerror}`);
-					}
-					params.set('token', data.token);
-					localStorage.setItem(tokenName, token);
-					getAssertion();
-				}));
-			}
-
-			if (!params.get('token')) {
-				$el.on('click', () => { // this should send a req to get a token
-					if (acting) return;
-					acting = true;
-					authorize();
-				});
-			} else {
-				$('#authpanel').css({display: 'none'});
-				getAssertion();
-			}
-		</script>
-
 	</head>
 	<body>
 		<div class="body">
@@ -101,4 +37,68 @@
 			<small><a href="/rules">Rules</a> | <a href="/privacy">Privacy policy</a> | <a href="/credits">Credits</a> | <a href="/contact">Contact</a></small>
 		</p>
 	</footer>
+
+	<script>
+		var safeJSON = function (callback) {
+			return function (data) {
+				if (data.length < 1) return;
+				if (data[0] == ']') data = data.substr(1);
+				return callback(JSON.parse(data));
+			};
+		};
+		var params = new URLSearchParams(location.search);
+		var tokenName = 'ps-' + params.get('client_id') + "-token";
+		var token = localStorage.getItem(tokenName);
+		if (token) {
+			params.set('token', token);
+		}
+		var acting = false;
+
+		function getAssertion() {
+			$.get('/api/oauth/api/getassertion', {
+				token: params.get('token'),
+				client_id: params.get('client_id'),
+				challenge: params.get('challenge'),
+			}, safeJSON(function (data) {
+				if (data.success === false) {
+					params.delete('token');
+					localStorage.removeItem(tokenName);
+					$('#authpanel').css({display: ''});
+					return $('#auth').on('click', () => { // this should send a req to get a token
+						if (acting) return;
+						acting = true;
+						authorize();
+					});
+				}
+				var redirect = new URL(params.redirect_uri);
+				redirect.search = new URLSearchParams({assertion: data.assertion});
+				location.replace(redirect);
+			}));
+		}
+
+		function authorize() {
+			$.get('/api/oauth/api/authorize', {
+				client_id: params.get('client_id'),
+			}, safeJSON(function (data) {
+				if (data.actionerror) {
+					return alert(`Error: ${data.actionerror}`);
+				}
+				params.set('token', data.token);
+				localStorage.setItem(tokenName, token);
+				getAssertion();
+			}));
+		}
+
+		if (!params.get('token')) {
+			$('#auth').on('click', () => { // this should send a req to get a token
+				if (acting) return;
+				acting = true;
+				authorize();
+			});
+		} else {
+			$('#authpanel').css({display: 'none'});
+			getAssertion();
+		}
+	</script>
+
 	</body></html>
