@@ -544,29 +544,6 @@ export const actions: {[k: string]: QueryHandler} = {
 		const challstr = crypto.randomBytes(20).toString('hex');
 		return this.session.getAssertion(this.user.id, undefined, this.user, challstr);
 	},
-
-	async 'oauth/api/register'(params) {
-		if (!this.user.loggedIn) {
-			throw new ActionError("You must be logged in to register an OAuth application.");
-		}
-		if (!(params.clientName ||= "").length) {
-			throw new ActionError("No client name was provided.");
-		}
-		if (params.clientName.length > 40) {
-			throw new ActionError("Client name must be 40 characters or less.");
-		}
-		const existing = await tables.oauthClients.selectOne()`WHERE owner = ${this.user.id}`;
-		if (existing) {
-			throw new ActionError("You may only have one OAuth application per account.");
-		}
-		const id = crypto.randomBytes(16).toString('hex');
-		await tables.oauthClients.insert({
-			id,
-			client_title: params.clientName,
-			owner: this.user.id,
-		});
-		return {success: id};
-	},
 };
 
 if (Config.actions) {
