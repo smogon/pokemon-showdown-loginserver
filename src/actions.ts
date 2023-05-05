@@ -503,21 +503,6 @@ export const actions: {[k: string]: QueryHandler} = {
 		}
 	},
 
-	async 'oauth/register'(params) {
-		this.response.setHeader('Content-Type', 'text/html');
-		try {
-			const content = await fs.readFile(
-				__dirname + "/../../src/public/oauth-register.html",
-				'utf-8'
-			);
-			this.response.setHeader('Content-Length', content.length);
-			return content;
-		} catch (e) {
-			Server.crashlog(e, "oauth/register", params);
-			return "<body>The OAuth page could not be served at this time. Please try again later.</body>";
-		}
-	},
-
 	// make a token if they don't already have it
 	async 'oauth/api/authorize'(params) {
 		if (!this.user.loggedIn) {
