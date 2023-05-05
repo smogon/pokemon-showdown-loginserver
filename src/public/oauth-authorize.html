@@ -6,7 +6,6 @@
 		<title>Authorize application - Pokémon Showdown!</title>
 
 		<link rel="stylesheet" href="//pokemonshowdown.com/style/global.css">
-		<script src="//pokemonshowdown.com/js/jquery-1.9.1.min.js"></script>
 	</head>
 	<body>
 		<div class="body">
@@ -89,16 +88,21 @@
 			}));
 		}
 
-		if (!params.get('token')) {
-			$('#auth').on('click', () => { // this should send a req to get a token
-				if (acting) return;
-				acting = true;
-				authorize();
-			});
-		} else {
-			$('#authpanel').css({display: 'none'});
-			getAssertion();
+		var jqueryEl = document.createElement('script');
+		jqueryEl.src = '/js/jquery-1.9.1.min.js';
+		jqueryEl.onload = function() {
+			if (!params.get('token')) {
+				$('#auth').on('click', () => { // this should send a req to get a token
+					if (acting) return;
+					acting = true;
+					authorize();
+				});
+			} else {
+				$('#authpanel').css({display: 'none'});
+				getAssertion();
+			}
 		}
+		document.body.appendChild(jqueryEl);
 	</script>
 
 	</body></html>
