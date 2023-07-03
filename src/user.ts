@@ -135,7 +135,7 @@ export class Session {
 		}
 		return this.login(username, password);
 	}
-	async login(name: string, pass: string) {
+	async login(name: string, pass: string, mfa?: string) {
 		const curTime = time();
 		await this.logout();
 		const userid = toID(name);
@@ -144,11 +144,27 @@ export class Session {
 			// unregistered. just do the thing
 			return this.context.user.login(name);
 		}
+		// if 2FA is enabled...
+		if (info.mfaenabled) {
+			// if no MFA token is provided, throw error
+			if (!mfa) {
+				throw new ActionError('Wrong authentication code.');
+			}
+			const mfaverified = await this.mfaVerify(name, mfa);
+			// if incorrect MFA token is provided, throw error
+			if (!mfaverified) {
+				throw new ActionError('Wrong authentication code.');
+			}
+		}
 		// previously, there was a case for banstate here in the php.
 		// this is not necessary, as getAssertion handles that. Proceed to verification.
 		const verified = await this.passwordVerify(name, pass);
 		if (!verified) {
-			throw new ActionError('Wrong password.');
+			if (info.mfaenabled) {
+				throw new ActionError('Wrong password. Please re-enter your authentication code.');
+			} else {
+				throw new ActionError('Wrong password.');
+			}
 		}
 		const timeout = (curTime + SID_DURATION);
 		const ip = this.context.getIp();
@@ -247,6 +263,9 @@ export class Session {
 				}
 				if (userstate.email?.endsWith('@')) {
 					return ';;@gmail';
+				}
+				if (userstate.mfaenabled) {
+					return ';;mfa';
 				}
 				return ';';
 			} else {
@@ -426,6 +445,14 @@ export class Session {
 	async getUser(): Promise<User> {
 		return await this.checkLoggedIn() ??
 			new User(this.cookies.get('showdown_username'));
+	}
+	async mfaVerify(name: string, token: string) {
+		const userid = toID(name);
+		const userData = await users.get('*', userid);
+		if (userData?.mfatoken) {
+			const mfatoken = userData?.mfatoken;
+			return await verify(token, mfatoken);
+		}
 	}
 	async checkLoggedIn() {
 		const ctime = time();
