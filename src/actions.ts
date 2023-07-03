@@ -10,6 +10,7 @@ import {Ladder} from './ladder';
 import {Replays} from './replays';
 import {ActionError, QueryHandler} from './server';
 import {toID, updateserver, bash, time} from './utils';
+import {generateSecret} from '2fa-util';
 import * as tables from './tables';
 import * as pathModule from 'path';
 import IPTools from './ip-tools';
@@ -88,7 +89,7 @@ export const actions: {[k: string]: QueryHandler} = {
 			throw new ActionError(`incorrect login data, userid must contain at least one letter or number`);
 		}
 		const challengekeyid = parseInt(params.challengekeyid!) || -1;
-		const actionsuccess = await this.session.login(params.name, params.pass);
+		const actionsuccess = await this.session.login(params.name, params.pass, params.mfa);
 		if (!actionsuccess) return {actionsuccess, assertion: false};
 		const challenge = params.challstr || params.challenge || "";
 		const assertion = await this.session.getAssertion(
@@ -261,6 +262,75 @@ export const actions: {[k: string]: QueryHandler} = {
 			challenge,
 			this.verifyCrossDomainRequest()
 		);
+	},
+
+async request2fa(params) {
+		const challengeprefix = this.verifyCrossDomainRequest();
+		const res: {[k: string]: any} = {};
+		const curuser = this.user;
+
+		let userid = '';
+		if (curuser.loggedin) {
+			res.username = curuser.name;
+			userid = curuser.id;
+		} else if (this.cookies.get('showdown_username')) {
+			res.username = this.cookies.get('showdown_username')!;
+			userid = toID(res.username);
+		}
+		let assertion = '';
+		if (userid !== '') {
+			const challengekeyid = !params.challengekeyid ? -1 : parseInt(params.challengekeyid);
+			const challenge = params.challstr || "";
+			assertion = await this.session.getAssertion(
+				userid, challengekeyid, curuser, challenge, challengeprefix
+			);
+		}
+
+		const alreadyhas2fa = await tables.users.get(['mfaenabled'], userid).catch(() => {});
+		if (alreadyhas2fa?.mfaenabled === 1) return false;
+
+		const token = await generateSecret(userid, 'Pokemon Showdown!')
+
+		const actionsuccess = await tables.users.update(userid, {
+			mfatoken: token.secret,
+		}).catch(() => false);
+
+		if (!actionsuccess) return false;
+
+		if (!assertion.startsWith(';')) {
+			return {
+				token: token
+			};
+		} else {
+			return false;
+		}
+	},
+
+	async confirm2fa(params) {
+		this.setPrefix('');
+		const challengeprefix = this.verifyCrossDomainRequest();
+		if (this.request.method !== 'POST') {
+			throw new ActionError(`For security reasons, logins must happen with POST data.`);
+		}
+		if (!params.name || !params.pass) {
+			throw new ActionError(`incorrect login data, you need "name" and "pass" fields`);
+		}
+		const userid = toID(params.name);
+		const challengekeyid = parseInt(params.challengekeyid) || -1;
+		let actionsuccess = await this.session.passwordVerify(params.name, params.pass);
+		if (!actionsuccess) return {actionsuccess, assertion: false};
+		actionsuccess = await this.session.mfaVerify(userid, params.mfa);
+		if (!actionsuccess) return {actionsuccess, assertion: false};
+		const challenge = params.challstr || "";
+		const assertion = await this.session.getAssertion(
+			params.name, challengekeyid, null, challenge, challengeprefix
+		);
+		if (!assertion.startsWith(';') && assertion !== ';;mfa') {
+			let actionsuccess_update = await tables.users.update(userid, {
+				mfaenabled: 1,
+			}).catch(() => false);
+			if (!actionsuccess) return false;
+		}
 	},
 
 	async ladderupdate(params) {
