@@ -493,7 +493,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		delete (data as any).passwordhash;
 		return {
 			success: !!result.changedRows,
-			curuser: Object.assign(data, {email}),
+			curuser: {loggedin: true, userid: this.user.id, username: data.username, email},
 		};
 	},
 	async clearemail() {
@@ -512,7 +512,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		delete (data as any).passwordhash;
 		return {
 			actionsuccess: !!result.changedRows,
-			curuser: Object.assign(data, {email: null}),
+			curuser: {loggedin: true, userid: this.user.id, username: data.username, email: null},
 		};
 	},
 	async resetpassword(params) {
