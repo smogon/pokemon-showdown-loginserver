@@ -479,14 +479,18 @@ export const actions: {[k: string]: QueryHandler} = {
 			throw new ActionError(`You must be logged in to set an email.`);
 		}
 		if (!params.email || typeof params.email !== 'string') {
-			throw new ActionError(`You must send an email.`);
+			throw new ActionError(`You must send an email address.`);
 		}
 		const email = EMAIL_REGEX.exec(params.email)?.[0];
-		if (!email) throw new ActionError(`Invalid email sent.`);
+		if (!email) throw new ActionError(`Email is invalid or already taken.`);
 		const data = await tables.users.get(this.user.id);
 		if (!data) throw new ActionError(`You are not registered.`);
 		if (data.email?.endsWith('@')) {
 			throw new ActionError(`You have 2FA, and do not need to set an email for password resets.`);
+		}
+		const emailUsed = await tables.users.selectAll(['userid'])`WHERE email = ${email}`;
+		if (emailUsed.length) {
+			throw new ActionError(`Email is invalid or already taken.`);
 		}
 		const result = await tables.users.update(this.user.id, {email});
 
