@@ -5,7 +5,7 @@
  * @author mia-pi-git
  */
 import {Config} from './config-loader';
-import * as fs from 'fs/promises';
+import {promises as fs, readFileSync} from 'fs';
 import {Ladder} from './ladder';
 import {Replays} from './replays';
 import {ActionError, QueryHandler, Server} from './server';
@@ -21,6 +21,15 @@ async function getOAuthClient(clientId?: string) {
 	if (!data) throw new ActionError("Invalid client_id");
 	return data;
 }
+
+/** Stolen from PS main */
+// eslint-disable-next-line max-len
+const LINK_REGEX = /(?:(?:https?:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*|www\.[a-z0-9-]+(?:\.[a-z0-9-]+)+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:(?:com?|org|net|edu|info|us|jp)\b|[a-z]{2,3}(?=:[0-9]|\/)))(?::[0-9]+)?(?:\/(?:(?:[^\s()&<>]|&amp;|&quot;|\((?:[^\\s()<>&]|&amp;)*\))*(?:[^\s()[\]{}".,!?;:&<>*`^~\\]|\((?:[^\s()<>&]|&amp;)*\)))?)?|[a-z0-9.]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})(?![^ ]*&gt;)/ig;
+
+const OAUTH_AUTHORIZE_CONTENT = readFileSync(
+	__dirname + "/../../src/public/oauth-authorize.html",
+	'utf-8'
+);
 
 export const actions: {[k: string]: QueryHandler} = {
 	async register(params) {
@@ -479,22 +488,23 @@ export const actions: {[k: string]: QueryHandler} = {
 	// oauth/page - public-facing part
 	// oauth/api/page - api part (does the actual action)
 	async 'oauth/authorize'(params) {
-		if (!params.redirect_uri) {
+		if (!params.redirect_uri) params.redirect_uri = '';
+		const url = params.redirect_uri.match(LINK_REGEX)?.[0];
+		if (!url) {
 			throw new ActionError("No redirect_uri provided");
 		}
 		const clientInfo = await getOAuthClient(params.client_id);
 
 		this.response.setHeader('Content-Type', 'text/html');
 		try {
-			let content = await fs.readFile(
-				__dirname + "/../../src/public/oauth-authorize.html",
-				'utf-8'
-			);
+			let content = OAUTH_AUTHORIZE_CONTENT;
 			// table keys are owner, clientName, id
 			// expects client, client_name, redirect_uri
+			// these don't need to be sanitized atm because they're manually registered
 			content = content.replace(/\{\{client\}\}/g, clientInfo.client_title);
 			content = content.replace(/\{\{client_name\}\}/g, clientInfo.owner);
-			content = content.replace(/\{\{redirect_uri\}\}/g, params.redirect_uri);
+			// url does, though.
+			content = content.replace(/\{\{redirect_uri\}\}/g, url);
 			this.response.setHeader('Content-Length', content.length);
 			return content;
 		} catch (e) {
