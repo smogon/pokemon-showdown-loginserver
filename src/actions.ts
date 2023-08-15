@@ -22,10 +22,6 @@ async function getOAuthClient(clientId?: string) {
 	return data;
 }
 
-/** Stolen from PS main */
-// eslint-disable-next-line max-len
-const LINK_REGEX = /(?:(?:https?:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*|www\.[a-z0-9-]+(?:\.[a-z0-9-]+)+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:(?:com?|org|net|edu|info|us|jp)\b|[a-z]{2,3}(?=:[0-9]|\/)))(?::[0-9]+)?(?:\/(?:(?:[^\s()&<>]|&amp;|&quot;|\((?:[^\\s()<>&]|&amp;)*\))*(?:[^\s()[\]{}".,!?;:&<>*`^~\\]|\((?:[^\s()<>&]|&amp;)*\)))?)?|[a-z0-9.]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})(?![^ ]*&gt;)/ig;
-
 const OAUTH_AUTHORIZE_CONTENT = readFileSync(
 	__dirname + "/../../src/public/oauth-authorize.html",
 	'utf-8'
@@ -488,9 +484,7 @@ export const actions: {[k: string]: QueryHandler} = {
 	// oauth/page - public-facing part
 	// oauth/api/page - api part (does the actual action)
 	async 'oauth/authorize'(params) {
-		if (!params.redirect_uri) params.redirect_uri = '';
-		const url = params.redirect_uri.match(LINK_REGEX)?.[0];
-		if (!url) {
+		if (!params.redirect_uri) {
 			throw new ActionError("No redirect_uri provided");
 		}
 		const clientInfo = await getOAuthClient(params.client_id);
@@ -502,7 +496,7 @@ export const actions: {[k: string]: QueryHandler} = {
 			// expects client, client_name, redirect_uri
 			content = content.replace(/\{\{client\}\}/g, escapeHTML(clientInfo.client_title));
 			content = content.replace(/\{\{client_name\}\}/g, escapeHTML(clientInfo.owner));
-			content = content.replace(/\{\{redirect_uri\}\}/g, url);
+			content = content.replace(/\{\{redirect_uri\}\}/g, escapeHTML(params.redirect_uri));
 			this.response.setHeader('Content-Length', content.length);
 			return content;
 		} catch (e) {
