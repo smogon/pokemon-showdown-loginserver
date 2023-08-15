@@ -9,7 +9,7 @@ import {promises as fs, readFileSync} from 'fs';
 import {Ladder} from './ladder';
 import {Replays} from './replays';
 import {ActionError, QueryHandler, Server} from './server';
-import {toID, updateserver, bash, time} from './utils';
+import {toID, updateserver, bash, time, escapeHTML} from './utils';
 import * as tables from './tables';
 import * as pathModule from 'path';
 import IPTools from './ip-tools';
@@ -500,10 +500,8 @@ export const actions: {[k: string]: QueryHandler} = {
 			let content = OAUTH_AUTHORIZE_CONTENT;
 			// table keys are owner, clientName, id
 			// expects client, client_name, redirect_uri
-			// these don't need to be sanitized atm because they're manually registered
-			content = content.replace(/\{\{client\}\}/g, clientInfo.client_title);
-			content = content.replace(/\{\{client_name\}\}/g, clientInfo.owner);
-			// url does, though.
+			content = content.replace(/\{\{client\}\}/g, escapeHTML(clientInfo.client_title));
+			content = content.replace(/\{\{client_name\}\}/g, escapeHTML(clientInfo.owner));
 			content = content.replace(/\{\{redirect_uri\}\}/g, url);
 			this.response.setHeader('Content-Length', content.length);
 			return content;
