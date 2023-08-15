@@ -26,7 +26,7 @@
 				{{client}} by {{client_name}} wants to access your Pokemon Showdown account.<br />
 				This does not expose any private information, and will allow you to log in on their site using your Pokemon Showdown account for two weeks.<br /><br /><hr />
 				<a id="auth" class="button greenbutton nav-first nav-last">Authorize</a><br /><br />
-				<small>Authorizing will redirect you to {{redirect_uri}}</small>
+				<small>Authorizing will redirect you to <span id="uri"></span></small>
 			</div>
 		</section></div>
 	</div>
@@ -103,6 +103,9 @@
 			}
 		}
 		document.body.appendChild(jqueryEl);
+
+		var redirectUri = document.createTextNode(params.redirect_uri || "");
+		document.getElementById('uri').appendChild(redirectUri);
 	</script>
 
 	</body></html>

@@ -496,7 +496,6 @@ export const actions: {[k: string]: QueryHandler} = {
 			// expects client, client_name, redirect_uri
 			content = content.replace(/\{\{client\}\}/g, escapeHTML(clientInfo.client_title));
 			content = content.replace(/\{\{client_name\}\}/g, escapeHTML(clientInfo.owner));
-			content = content.replace(/\{\{redirect_uri\}\}/g, escapeHTML(params.redirect_uri));
 			this.response.setHeader('Content-Length', content.length);
 			return content;
 		} catch (e) {
