@@ -49,7 +49,7 @@
 			};
 		};
 		function loadApplications() {
-			$.get('/api/oauth/authorized', safeJSON(function (data) {
+			$.get('/api/oauth/api/authorized', safeJSON(function (data) {
 				if (data.actionerror) {
 					return alert(data.actionerror);
 				}
