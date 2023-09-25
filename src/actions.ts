@@ -662,7 +662,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		let teams = [];
 		try {
 			teams = await tables.pgdb.query(
-				'SELECT * FROM teamid, team, format, title as name WHERE ownerid = $1', [this.user.id]
+				'SELECT teamid, team, format, title as name FROM teams WHERE ownerid = $1', [this.user.id]
 			) ?? [];
 		} catch (e) {
 			Server.crashlog(e, 'a teams database query', params);
