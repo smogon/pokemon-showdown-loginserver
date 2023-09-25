@@ -1,7 +1,7 @@
 /**
  * Login server database tables
  */
-import {Database, DatabaseTable} from './database';
+import {Database, DatabaseTable, PGDatabase} from './database';
 import {Config} from './config-loader';
 
 import type {LadderEntry} from './ladder';
@@ -116,3 +116,14 @@ export const oauthTokens = new DatabaseTable<{
 	id: string;
 	time: number;
 }>(psdb, 'oauth_tokens', 'id');
+
+export const teams = new PGDatabase<{
+	teamid: string;
+	team: string;
+	ownerid: string;
+	format: string;
+	title: string | null;
+	date: Date;
+	private: boolean;
+	views: number;
+}>(Config.teamsdb);

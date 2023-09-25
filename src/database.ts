@@ -7,6 +7,7 @@
  */
 
 import * as mysql from 'mysql2';
+import * as pg from 'pg';
 
 export type BasicSQLValue = string | number | null;
 export type SQLRow = {[k: string]: BasicSQLValue};
@@ -288,5 +289,16 @@ export class DatabaseTable<Row> {
 	}
 	update(primaryKey: BasicSQLValue, data: PartialOrSQL<Row>) {
 		return this.updateAll(data)`WHERE \`${this.primaryKeyName}\` = ${primaryKey} LIMIT 1`;
+	}
+}
+
+export class PGDatabase<T = any> {
+	database: pg.Pool | null;
+	constructor(config: pg.PoolConfig | null) {
+		this.database = config ? new pg.Pool(config) : null;
+	}
+	query(query: string, values: BasicSQLValue[]) {
+		if (!this.database) return null;
+		return this.database?.query(query, values).then(x => x.rows) as Promise<T[]>;
 	}
 }
