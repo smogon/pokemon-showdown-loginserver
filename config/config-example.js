@@ -161,3 +161,8 @@ exports.passwordemails = {
 	transportOpts: {},
 	from: 'passwords@pokemonshowdown.com',
 };
+
+/**
+ * @type {import('pg').PoolConfig | null}
+ */
+exports.postgres = null;
