@@ -126,4 +126,4 @@ export const teams = new PGDatabase<{
 	date: Date;
 	private: boolean;
 	views: number;
-}>(Config.teamsdb);
+}>(Config.postgres);

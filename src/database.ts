@@ -297,8 +297,9 @@ export class PGDatabase<T = any> {
 	constructor(config: pg.PoolConfig | null) {
 		this.database = config ? new pg.Pool(config) : null;
 	}
-	query(query: string, values: BasicSQLValue[]) {
+	async query<O = T>(query: string, values: BasicSQLValue[]) {
 		if (!this.database) return null;
-		return this.database?.query(query, values).then(x => x.rows) as Promise<T[]>;
+		const result = await this.database.query(query, values);
+		return result.rows as O[];
 	}
 }

@@ -663,7 +663,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		try {
 			teams = await tables.teams.query(
 				'SELECT * FROM teamid, team, format, title as name WHERE ownerid = $1', [this.user.id]
-			) || [];
+			) ?? [];
 		} catch (e) {
 			Server.crashlog(e, 'a teams database query', params);
 			throw new ActionError('The server could not load your teams. Please try again later.');

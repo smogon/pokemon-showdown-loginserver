@@ -159,4 +159,4 @@ exports.standings = {
 /**
  * @type {import('pg').PoolConfig | null}
  */
-exports.teamsdb = null;
+exports.postgres = null;
