@@ -20,7 +20,7 @@ import * as url from 'url';
 // eslint-disable-next-line
 const EMAIL_REGEX = /(?:[a-z0-9!#$%&\'*+\/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&\'*+\/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])/i;
 const mailer = nodemailer.createTransport(Config.passwordemails.transportOpts);
-const OAUTH_TOKEN_TIME = 2 * 7 * 24 * 60 * 1000;
+const OAUTH_TOKEN_TIME = 2 * 7 * 24 * 60 * 60 * 1000;
 
 async function getOAuthClient(clientId?: string, origin?: string) {
 	if (!clientId) throw new ActionError("No client_id provided.");
@@ -278,7 +278,7 @@ export const actions: {[k: string]: QueryHandler} = {
 	},
 
 	async getassertion(params) {
-		this.setPrefix('');
+		this.verifyCrossDomainRequest();
 		params.userid = toID(params.userid) || this.user.id;
 		// NaN is falsy so this validates
 		const challengekeyid = Number(params.challengekeyid) || -1;
@@ -663,15 +663,13 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (!token) {
 			throw new ActionError('No token provided.');
 		}
-		const tokenEntry = await (
-			tables.oauthTokens.selectOne()
-		)`WHERE owner = ${this.user.id} and client = ${clientInfo.id}`;
-		if (!tokenEntry || tokenEntry.id !== token) {
+		const tokenEntry = await tables.oauthTokens.get(token);
+		if (!tokenEntry) {
 			return {success: false};
 		}
 		const id = crypto.randomBytes(16).toString('hex');
 		await tables.oauthTokens.insert({
-			id, owner: this.user.id, client: clientInfo.id, time: Date.now(),
+			id, owner: tokenEntry.owner, client: clientInfo.id, time: Date.now(),
 		});
 		await tables.oauthTokens.delete(tokenEntry.id);
 		return {success: id, expires: Date.now() + OAUTH_TOKEN_TIME};
@@ -680,7 +678,7 @@ export const actions: {[k: string]: QueryHandler} = {
 	// validate assertion & get token if it's valid
 	async 'oauth/api/getassertion'(params) {
 		this.allowCORS();
-		const client = await getOAuthClient(params.client_id);
+		await getOAuthClient(params.client_id);
 		const token = (params.token || "").toString();
 		if (!token) {
 			throw new ActionError('No token provided.');
@@ -689,14 +687,17 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (!challstr) {
 			throw new ActionError('No challstr provided.');
 		}
-		const tokenEntry = await (
-			tables.oauthTokens.selectOne()
-		)`WHERE owner = ${this.user.id} and client = ${client.id}`;
+		const tokenEntry = await tables.oauthTokens.get(token);
 		if (!tokenEntry || tokenEntry.id !== token) {
 			return {success: false};
 		}
+		if ((Date.now() - tokenEntry.time) > OAUTH_TOKEN_TIME) { // 2w
+			await tables.oauthTokens.delete(tokenEntry.id);
+			return {success: false};
+		}
+		this.user.login(tokenEntry.owner);
 		return this.session.getAssertion(
-			tokenEntry.owner, Config.challengekeyid, this.user, challstr
+			this.user.id, Config.challengekeyid, this.user, challstr
 		);
 	},
 
