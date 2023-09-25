@@ -661,7 +661,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		}
 		let teams = [];
 		try {
-			teams = await tables.teams.query(
+			teams = await tables.pgdb.query(
 				'SELECT * FROM teamid, team, format, title as name WHERE ownerid = $1', [this.user.id]
 			) ?? [];
 		} catch (e) {

@@ -292,14 +292,16 @@ export class DatabaseTable<Row> {
 	}
 }
 
-export class PGDatabase<T = any> {
+export class PGDatabase {
 	database: pg.Pool | null;
 	constructor(config: pg.PoolConfig | null) {
 		this.database = config ? new pg.Pool(config) : null;
 	}
-	async query<O = T>(query: string, values: BasicSQLValue[]) {
+	async query<O = any>(query: string, values: BasicSQLValue[]) {
 		if (!this.database) return null;
 		const result = await this.database.query(query, values);
 		return result.rows as O[];
 	}
 }
+
+

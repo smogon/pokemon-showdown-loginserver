@@ -9,6 +9,7 @@ import type {ReplayData} from './replays';
 
 // direct access
 export const psdb = new Database(Config.mysql);
+export const pgdb = new PGDatabase(Config.postgres);
 export const replaysDB = Config.replaysdb ? new Database(Config.replaysdb!) : psdb;
 export const ladderDB = Config.ladderdb ? new Database(Config.ladderdb!) : psdb;
 
@@ -116,14 +117,3 @@ export const oauthTokens = new DatabaseTable<{
 	id: string;
 	time: number;
 }>(psdb, 'oauth_tokens', 'id');
-
-export const teams = new PGDatabase<{
-	teamid: string;
-	team: string;
-	ownerid: string;
-	format: string;
-	title: string | null;
-	date: Date;
-	private: boolean;
-	views: number;
-}>(Config.postgres);
