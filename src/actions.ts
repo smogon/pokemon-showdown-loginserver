@@ -152,7 +152,12 @@ export const actions: {[k: string]: QueryHandler} = {
 
 	async upkeep(params) {
 		const challengeprefix = this.verifyCrossDomainRequest();
-		const res = {assertion: '', username: '', loggedin: false};
+		const res = {
+			assertion: '',
+			username: '',
+			loggedin: false,
+			curuser: {} as {email?: string},
+		};
 		const curuser = this.user;
 		let userid = '';
 		if (curuser.id !== 'guest') {
@@ -167,6 +172,9 @@ export const actions: {[k: string]: QueryHandler} = {
 			);
 		}
 		res.loggedin = !!curuser.loggedIn;
+		if (res.loggedin) {
+			res.curuser = {email: this.user.email};
+		}
 		return res;
 	},
 
@@ -538,12 +546,51 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (emailUsed.length) {
 			throw new ActionError(`Email is invalid or already taken.`);
 		}
-		const result = await tables.users.update(this.user.id, {email});
 
-		delete (data as any).passwordhash;
+		const pass = crypto.randomBytes(10).toString('hex');
+		await tables.users.update(this.user.id, {
+			email: `!${pass}!${time()}!${email}!`,
+		});
+		const confirmURL = `https://${Config.routes.client}/api/confirmemail?token=${pass}`;
+		await mailer.sendMail({
+			from: Config.passwordemails.from,
+			to: email,
+			subject: "Pokemon Showdown email confirmation",
+			text: (
+				`Someone tried to bind this email to the Pokemon Showdown username ${this.user.id}\n` +
+				`Please navigate to the URL ${confirmURL}\n` +
+				`Not you? Please contact staff by typing /ht in any chatroom on Pokemon Showdown. \n` +
+				`If you are unable to do so, visit the Help chatroom.`
+			),
+			html: (
+				`Someone tried to bind this email to the Pokemon Showdown username ${this.user.id}\n` +
+				`Click <a href="${confirmURL}">this link</a> to complete the link.<br />` +
+				`Not you? Please contact staff by typing <code>/ht</code> in any chatroom on Pokemon Showdown. <br />` +
+				`If you are unable to do so, visit the <a href="${Config.routes.client}/help">Help</a> chatroom.`
+			),
+		});
+		return {success: true};
+	},
+	async confirmemail(params) {
+		if (!this.user.loggedIn) throw new ActionError("Not logged in.");
+		const pass = toID(params.token);
+		if (!pass) throw new ActionError(`Invalid confirmation token.`);
+		const userData = await tables.users.get(this.user.id);
+		if (!userData || !userData.email || !userData?.email.startsWith('!')) {
+			throw new ActionError(`Invalid confirmation request.`);
+		}
+		// `!${pass}!${time()}!${email}!`,
+		const [, targetPass, rawTime, email] = userData.email.split('!');
+		if (toID(targetPass) !== pass) {
+			throw new ActionError(`Invalid confirmation token. Please try again later.`);
+		}
+		const validateTime = Number(rawTime);
+		if (time() > (validateTime + (60 * 60 * 12))) {
+			throw new ActionError(`Confirmation token expired. Please try again.`);
+		}
+		const result = await tables.users.update(this.user.id, {email});
 		return {
 			success: !!result.changedRows,
-			curuser: {loggedin: true, userid: this.user.id, username: data.username, email},
 		};
 	},
 	async clearemail() {
@@ -561,7 +608,7 @@ export const actions: {[k: string]: QueryHandler} = {
 
 		delete (data as any).passwordhash;
 		return {
-			actionsuccess: !!result.changedRows,
+			success: !!result.changedRows,
 			curuser: {loggedin: true, userid: this.user.id, username: data.username, email: null},
 		};
 	},

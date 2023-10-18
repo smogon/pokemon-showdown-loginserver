@@ -24,6 +24,7 @@ export class User {
 	name = 'Guest';
 	id = 'guest';
 	loggedIn = '';
+	email?: string;
 	constructor(name?: string) {
 		if (name) this.setName(name);
 	}
@@ -162,6 +163,7 @@ export class Session {
 			ip,
 		});
 		this.session = res.insertId || 0;
+		if (info.email) this.context.user.email = info.email;
 		return this.context.user.login(name);
 	}
 	async logout(deleteCookie = false) {
