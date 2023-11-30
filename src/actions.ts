@@ -662,9 +662,8 @@ export const actions: {[k: string]: QueryHandler} = {
 		}
 		let teams = [];
 		try {
-			teams = await tables.pgdb.query(
-				'SELECT teamid, team, format, title as name FROM teams WHERE ownerid = $1', [this.user.id]
-			) ?? [];
+			teams = await tables.pgdb.query<any>(
+			)`SELECT teamid, team, format, title as name FROM teams WHERE ownerid = ${this.user.id}`;
 		} catch (e) {
 			Server.crashlog(e, 'a teams database query', params);
 			throw new ActionError('The server could not load your teams. Please try again later.');
@@ -693,13 +692,12 @@ export const actions: {[k: string]: QueryHandler} = {
 			throw new ActionError("Invalid team ID");
 		}
 		try {
-			const data = await tables.pgdb.query(
-				`SELECT ownerid, team, private as privacy FROM teams WHERE teamid = $1`, [teamid]
-			);
-			if (!data || !data.length || data[0].ownerid !== this.user.id) {
+			const data = await tables.pgdb.queryOne(
+			)`SELECT ownerid, team, private as privacy FROM teams WHERE teamid = ${teamid} LIMIT 1`;
+			if (!data || data.ownerid !== this.user.id) {
 				return {team: null};
 			}
-			return data[0];
+			return data;
 		} catch (e) {
 			Server.crashlog(e, 'a teams database request', params);
 			throw new ActionError("Failed to fetch team. Please try again later.");
