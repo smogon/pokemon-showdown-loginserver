@@ -37,10 +37,11 @@ export class SQLStatement {
 		} else if (value === undefined) {
 			this.sql[this.sql.length - 1] += nextString;
 		} else if (Array.isArray(value)) {
-			if (this.sql[this.sql.length - 1].endsWith(`\``)) {
+			if ('"`'.includes(this.sql[this.sql.length - 1].slice(-1))) {
 				// "`a`, `b`" syntax
+				const quoteChar = this.sql[this.sql.length - 1].slice(-1);
 				for (const col of value) {
-					this.append(col, `\`, \``);
+					this.append(col, `${quoteChar}, ${quoteChar}`);
 				}
 				this.sql[this.sql.length - 1] = this.sql[this.sql.length - 1].slice(0, -4) + nextString;
 			} else {
@@ -52,21 +53,21 @@ export class SQLStatement {
 			}
 		} else if (this.sql[this.sql.length - 1].endsWith('(')) {
 			// "(`a`, `b`) VALUES (1, 2)" syntax
-			this.sql[this.sql.length - 1] += `\``;
+			this.sql[this.sql.length - 1] += `"`;
 			for (const col in value) {
-				this.append(col, `\`, \``);
+				this.append(col, `", "`);
 			}
-			this.sql[this.sql.length - 1] = this.sql[this.sql.length - 1].slice(0, -4) + `\`) VALUES (`;
+			this.sql[this.sql.length - 1] = this.sql[this.sql.length - 1].slice(0, -4) + `") VALUES (`;
 			for (const col in value) {
 				this.append(value[col], `, `);
 			}
 			this.sql[this.sql.length - 1] = this.sql[this.sql.length - 1].slice(0, -2) + nextString;
 		} else if (this.sql[this.sql.length - 1].toUpperCase().endsWith(' SET ')) {
 			// "`a` = 1, `b` = 2" syntax
-			this.sql[this.sql.length - 1] += `\``;
+			this.sql[this.sql.length - 1] += `"`;
 			for (const col in value) {
-				this.append(col, `\` = `);
-				this.append(value[col], `, \``);
+				this.append(col, `" = `);
+				this.append(value[col], `, "`);
 			}
 			this.sql[this.sql.length - 1] = this.sql[this.sql.length - 1].slice(0, -3) + nextString;
 		} else {
@@ -83,27 +84,29 @@ export class SQLStatement {
  * Tag function for SQL, with some magic.
  *
  * * `` SQL`UPDATE table SET a = ${'hello"'}` ``
- *   * `` 'UPDATE table SET a = "hello"' ``
+ *   * `` `UPDATE table SET a = 'hello'` ``
  *
- * Values surrounded by `` \` `` become names:
+ * Values surrounded by `"` or `` ` `` become identifiers:
  *
- * * ``` SQL`SELECT * FROM \`${'table'}\`` ```
- *   * `` 'SELECT * FROM `table`' ``
+ * * ``` SQL`SELECT * FROM "${'table'}"` ```
+ *   * `` `SELECT * FROM "table"` ``
+ *
+ * (Make sure to use `"` for Postgres and `` ` `` for MySQL.)
  *
  * Objects preceded by SET become setters:
  *
  * * `` SQL`UPDATE table SET ${{a: 1, b: 2}}` ``
- *   * `` 'UPDATE table SET `a` = 1, `b` = 2' ``
+ *   * `` `UPDATE table SET "a" = 1, "b" = 2` ``
  *
  * Objects surrounded by `()` become keys and values:
  *
  * * `` SQL`INSERT INTO table (${{a: 1, b: 2}})` ``
- *   * `` 'INSERT INTO table (`a`, `b`) VALUES (1, 2)' ``
+ *   * `` `INSERT INTO table ("a", "b") VALUES (1, 2)` ``
  *
- * Arrays become lists; surrounding by `` \` `` turns them into lists of names:
+ * Arrays become lists; surrounding by `"` or `` ` `` turns them into lists of names:
  *
- * * `` SQL`INSERT INTO table (\`${['a', 'b']}\`) VALUES (${[1, 2]})` ``
- *   * `` 'INSERT INTO table (`a`, `b`) VALUES (1, 2)' ``
+ * * `` SQL`INSERT INTO table ("${['a', 'b']}") VALUES (${[1, 2]})` ``
+ *   * `` `INSERT INTO table ("a", "b") VALUES (1, 2)` ``
  */
 export function SQL(strings: TemplateStringsArray, ...values: SQLValue[]) {
 	return new SQLStatement(strings, values);
@@ -195,52 +198,52 @@ export class DatabaseTable<Row> {
 	selectAll<T = Row>(entries?: (keyof Row & string)[] | SQLStatement):
 	(strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<T[]> {
 		if (!entries) entries = SQL`*`;
-		if (Array.isArray(entries)) entries = SQL`\`${entries}\``;
+		if (Array.isArray(entries)) entries = SQL`"${entries}"`;
 		return (strings, ...rest) =>
-			this.query<T>()`SELECT ${entries} FROM \`${this.name}\` ${new SQLStatement(strings, rest)}`;
+			this.query<T>()`SELECT ${entries} FROM "${this.name}" ${new SQLStatement(strings, rest)}`;
 	}
 	selectOne<T = Row>(entries?: (keyof Row & string)[] | SQLStatement):
 	(strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<T | undefined> {
 		if (!entries) entries = SQL`*`;
-		if (Array.isArray(entries)) entries = SQL`\`${entries}\``;
+		if (Array.isArray(entries)) entries = SQL`"${entries}"`;
 		return (strings, ...rest) =>
-			this.queryOne<T>()`SELECT ${entries} FROM \`${this.name}\` ${new SQLStatement(strings, rest)} LIMIT 1`;
+			this.queryOne<T>()`SELECT ${entries} FROM "${this.name}" ${new SQLStatement(strings, rest)} LIMIT 1`;
 	}
 	updateAll(partialRow: PartialOrSQL<Row>):
 	(strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<mysql.OkPacket> {
 		return (strings, ...rest) =>
-			this.queryExec()`UPDATE \`${this.name}\` SET ${partialRow as any} ${new SQLStatement(strings, rest)}`;
+			this.queryExec()`UPDATE "${this.name}" SET ${partialRow as any} ${new SQLStatement(strings, rest)}`;
 	}
 	updateOne(partialRow: PartialOrSQL<Row>):
 	(strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<mysql.OkPacket> {
 		return (s, ...r) =>
-			this.queryExec()`UPDATE \`${this.name}\` SET ${partialRow as any} ${new SQLStatement(s, r)} LIMIT 1`;
+			this.queryExec()`UPDATE "${this.name}" SET ${partialRow as any} ${new SQLStatement(s, r)} LIMIT 1`;
 	}
 	deleteAll():
 	(strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<mysql.OkPacket> {
 		return (strings, ...rest) =>
-			this.queryExec()`DELETE FROM \`${this.name}\` ${new SQLStatement(strings, rest)}`;
+			this.queryExec()`DELETE FROM "${this.name}" ${new SQLStatement(strings, rest)}`;
 	}
 	deleteOne():
 	(strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<mysql.OkPacket> {
 		return (strings, ...rest) =>
-			this.queryExec()`DELETE FROM \`${this.name}\` ${new SQLStatement(strings, rest)} LIMIT 1`;
+			this.queryExec()`DELETE FROM "${this.name}" ${new SQLStatement(strings, rest)} LIMIT 1`;
 	}
 	eval<T>():
 	(strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<T | undefined> {
 		return (strings, ...rest) =>
 			this.queryOne<{result: T}>(
-			)`SELECT ${new SQLStatement(strings, rest)} AS result FROM \`${this.name}\` LIMIT 1`
+			)`SELECT ${new SQLStatement(strings, rest)} AS result FROM "${this.name}" LIMIT 1`
 				.then(row => row?.result);
 	}
 
 	// high-level
 
 	insert(partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
-		return this.queryExec()`INSERT INTO \`${this.name}\` (${partialRow as SQLValue}) ${where}`;
+		return this.queryExec()`INSERT INTO "${this.name}" (${partialRow as SQLValue}) ${where}`;
 	}
 	insertIgnore(partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
-		return this.queryExec()`INSERT IGNORE INTO \`${this.name}\` (${partialRow as SQLValue}) ${where}`;
+		return this.queryExec()`INSERT IGNORE INTO "${this.name}" (${partialRow as SQLValue}) ${where}`;
 	}
 	async tryInsert(partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
 		try {
@@ -257,16 +260,16 @@ export class DatabaseTable<Row> {
 		return this.replace(partialRow, where);
 	}
 	replace(partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
-		return this.queryExec()`REPLACE INTO \`${this.name}\` (${partialRow as SQLValue}) ${where}`;
+		return this.queryExec()`REPLACE INTO "${this.name}" (${partialRow as SQLValue}) ${where}`;
 	}
 	get(primaryKey: BasicSQLValue, entries?: (keyof Row & string)[] | SQLStatement) {
-		return this.selectOne(entries)`WHERE \`${this.primaryKeyName}\` = ${primaryKey}`;
+		return this.selectOne(entries)`WHERE "${this.primaryKeyName}" = ${primaryKey}`;
 	}
 	delete(primaryKey: BasicSQLValue) {
-		return this.deleteAll()`WHERE \`${this.primaryKeyName}\` = ${primaryKey} LIMIT 1`;
+		return this.deleteAll()`WHERE "${this.primaryKeyName}" = ${primaryKey} LIMIT 1`;
 	}
 	update(primaryKey: BasicSQLValue, data: PartialOrSQL<Row>) {
-		return this.updateAll(data)`WHERE \`${this.primaryKeyName}\` = ${primaryKey} LIMIT 1`;
+		return this.updateAll(data)`WHERE "${this.primaryKeyName}" = ${primaryKey} LIMIT 1`;
 	}
 }
 
