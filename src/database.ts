@@ -315,12 +315,14 @@ export class PGDatabase extends Database<pg.Pool, []> {
 	override _resolveSQL(query: SQLStatement): [query: string, values: BasicSQLValue[]] {
 		let sql = query.sql[0];
 		const values = [];
+		let paramCount = 0;
 		for (let i = 0; i < query.values.length; i++) {
 			const value = query.values[i];
 			if (query.sql[i + 1].startsWith('`') || query.sql[i + 1].startsWith('"')) {
 				sql = sql.slice(0, -1) + this.escapeId('' + value) + query.sql[i + 1].slice(1);
 			} else {
-				sql += `$${i + 1}` + query.sql[i + 1];
+				paramCount++;
+				sql += `$${paramCount}` + query.sql[i + 1];
 				values.push(value);
 			}
 		}
