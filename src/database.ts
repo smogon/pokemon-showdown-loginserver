@@ -121,28 +121,15 @@ export abstract class Database<Pool extends mysql.Pool | pg.Pool = mysql.Pool | 
 		this.connection = connection;
 		connectedDatabases.push(this);
 	}
-	resolveSQL(query: SQLStatement): [query: string, values: BasicSQLValue[]] {
-		let sql = query.sql[0];
-		const values = [];
-		for (let i = 0; i < query.values.length; i++) {
-			const value = query.values[i];
-			if (query.sql[i + 1].startsWith('`')) {
-				sql = sql.slice(0, -1) + this.escapeId('' + value) + query.sql[i + 1].slice(1);
-			} else {
-				sql += '?' + query.sql[i + 1];
-				values.push(value);
-			}
-		}
-		return [sql, values];
-	}
-	abstract escapeId(param: string): string;
+	abstract _resolveSQL(query: SQLStatement): [query: string, values: BasicSQLValue[]];
 	abstract _query(sql: string, values: BasicSQLValue[]): Promise<any>;
+	abstract escapeId(param: string): string;
 	query<T = ResultRow>(sql: SQLStatement): Promise<T[]>;
 	query<T = ResultRow>(): (strings: TemplateStringsArray, ...rest: SQLValue[]) => Promise<T[]>;
 	query<T = ResultRow>(sql?: SQLStatement) {
 		if (!sql) return (strings: any, ...rest: any) => this.query<T>(new SQLStatement(strings, rest));
 
-		const [query, values] = this.resolveSQL(sql);
+		const [query, values] = this._resolveSQL(sql);
 		return this._query(query, values);
 	}
 	queryOne<T = ResultRow>(sql: SQLStatement): Promise<T | undefined>;
@@ -285,8 +272,19 @@ export class MySQLDatabase extends Database<mysql.Pool, mysql.OkPacket> {
 		}
 		super(mysql.createPool(config), prefix);
 	}
-	override escapeId(id: string) {
-		return this.connection.escapeId(id);
+	override _resolveSQL(query: SQLStatement): [query: string, values: BasicSQLValue[]] {
+		let sql = query.sql[0];
+		const values = [];
+		for (let i = 0; i < query.values.length; i++) {
+			const value = query.values[i];
+			if (query.sql[i + 1].startsWith('`') || query.sql[i + 1].startsWith('"')) {
+				sql = sql.slice(0, -1) + this.escapeId('' + value) + query.sql[i + 1].slice(1);
+			} else {
+				sql += '?' + query.sql[i + 1];
+				values.push(value);
+			}
+		}
+		return [sql, values];
 	}
 	override _query(query: string, values: BasicSQLValue[]): Promise<any> {
 		return new Promise((resolve, reject) => {
@@ -305,16 +303,33 @@ export class MySQLDatabase extends Database<mysql.Pool, mysql.OkPacket> {
 			});
 		});
 	}
+	override escapeId(id: string) {
+		return this.connection.escapeId(id);
+	}
 }
 
 export class PGDatabase extends Database<pg.Pool, []> {
 	constructor(config: pg.PoolConfig) {
 		super(new pg.Pool(config));
 	}
-	override escapeId(id: string) {
-		return (pg as any).escapeIdentifier(id);
+	override _resolveSQL(query: SQLStatement): [query: string, values: BasicSQLValue[]] {
+		let sql = query.sql[0];
+		const values = [];
+		for (let i = 0; i < query.values.length; i++) {
+			const value = query.values[i];
+			if (query.sql[i + 1].startsWith('`') || query.sql[i + 1].startsWith('"')) {
+				sql = sql.slice(0, -1) + this.escapeId('' + value) + query.sql[i + 1].slice(1);
+			} else {
+				sql += `$${i + 1}` + query.sql[i + 1];
+				values.push(value);
+			}
+		}
+		return [sql, values];
 	}
 	override _query(query: string, values: BasicSQLValue[]) {
 		return this.connection.query(query, values).then(res => res.rows);
+	}
+	override escapeId(id: string) {
+		return (pg as any).escapeIdentifier(id);
 	}
 }
