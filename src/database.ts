@@ -161,11 +161,11 @@ type PartialOrSQL<T> = {
 export class DatabaseTable<Row> {
 	db: Database;
 	name: string;
-	primaryKeyName: keyof Row & string;
+	primaryKeyName: keyof Row & string | null;
 	constructor(
 		db: Database,
 		name: string,
-		primaryKeyName: keyof Row & string
+		primaryKeyName: keyof Row & string | null = null
 	) {
 		this.db = db;
 		this.name = db.prefix + name;
@@ -256,6 +256,7 @@ export class DatabaseTable<Row> {
 		}
 	}
 	set(primaryKey: BasicSQLValue, partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
+		if (!this.primaryKeyName) throw new Error(`Cannot set() without a single-column primary key`);
 		partialRow[this.primaryKeyName] = primaryKey as any;
 		return this.replace(partialRow, where);
 	}
@@ -263,12 +264,15 @@ export class DatabaseTable<Row> {
 		return this.queryExec()`REPLACE INTO "${this.name}" (${partialRow as SQLValue}) ${where}`;
 	}
 	get(primaryKey: BasicSQLValue, entries?: (keyof Row & string)[] | SQLStatement) {
+		if (!this.primaryKeyName) throw new Error(`Cannot get() without a single-column primary key`);
 		return this.selectOne(entries)`WHERE "${this.primaryKeyName}" = ${primaryKey}`;
 	}
 	delete(primaryKey: BasicSQLValue) {
+		if (!this.primaryKeyName) throw new Error(`Cannot delete() without a single-column primary key`);
 		return this.deleteAll()`WHERE "${this.primaryKeyName}" = ${primaryKey} LIMIT 1`;
 	}
 	update(primaryKey: BasicSQLValue, data: PartialOrSQL<Row>) {
+		if (!this.primaryKeyName) throw new Error(`Cannot update() without a single-column primary key`);
 		return this.updateAll(data)`WHERE "${this.primaryKeyName}" = ${primaryKey} LIMIT 1`;
 	}
 }
