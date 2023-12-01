@@ -119,6 +119,7 @@ export const connectedDatabases: Database[] = [];
 export abstract class Database<Pool extends mysql.Pool | pg.Pool = mysql.Pool | pg.Pool, OkPacket = unknown> {
 	connection: Pool;
 	prefix: string;
+	type = '';
 	constructor(connection: Pool, prefix = '') {
 		this.prefix = prefix;
 		this.connection = connection;
@@ -255,6 +256,15 @@ export class DatabaseTable<Row> {
 			throw err;
 		}
 	}
+	upsert(partialRow: PartialOrSQL<Row>, partialUpdate = partialRow, where?: SQLStatement) {
+		if (this.db.type === 'pg') {
+			return this.queryExec(
+			)`INSERT INTO "${this.name}" (${partialRow as any}) ON CONFLICT (${this.primaryKeyName
+			}) DO UPDATE ${partialUpdate as any} ${where}`;
+		}
+		return this.queryExec(
+		)`INSERT INTO "${this.name}" (${partialRow as any}) ON DUPLICATE KEY UPDATE ${partialUpdate as any} ${where}`;
+	}
 	set(primaryKey: BasicSQLValue, partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
 		if (!this.primaryKeyName) throw new Error(`Cannot set() without a single-column primary key`);
 		partialRow[this.primaryKeyName] = primaryKey as any;
@@ -278,6 +288,7 @@ export class DatabaseTable<Row> {
 }
 
 export class MySQLDatabase extends Database<mysql.Pool, mysql.OkPacket> {
+	override type = 'mysql' as const;
 	constructor(config: mysql.PoolOptions & {prefix?: string}) {
 		const prefix = config.prefix || "";
 		if (config.prefix) {
@@ -323,6 +334,7 @@ export class MySQLDatabase extends Database<mysql.Pool, mysql.OkPacket> {
 }
 
 export class PGDatabase extends Database<pg.Pool, []> {
+	override type = 'pg' as const;
 	constructor(config: pg.PoolConfig) {
 		super(new pg.Pool(config));
 	}
