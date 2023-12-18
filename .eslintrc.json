@@ -1,6 +1,6 @@
 {
   "parserOptions": {
-    "ecmaVersion": 11,
+    "ecmaVersion": "es2021",
     "sourceType": "module",
     "ecmaFeatures": {
       "globalReturn": true
