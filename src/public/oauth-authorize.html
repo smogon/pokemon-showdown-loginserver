@@ -63,7 +63,7 @@
 			alert("Please log in on Pokemon Showdown before using this page.");
 			throw '';
 		} else {
-			document.getElementById('username').innerText = ` (logged in as "${username}")`;
+			document.getElementById('username').innerText = ` (logged in as "${decodeURI(username)}")`;
 		}
 		if (token) {
 			params.set('token', token);
