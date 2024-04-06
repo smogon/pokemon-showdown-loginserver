@@ -96,6 +96,12 @@ export const loginthrottle = psdb.getTable<{
 	lastuserid: string;
 }>('loginthrottle', 'ip');
 
+export const loginattempts = psdb.getTable<{
+	count: number;
+	time: number;
+	userid: number;
+}>('loginattempts', 'userid');
+
 export const usermodlog = psdb.getTable<{
 	entryid: number;
 	userid: string;
