@@ -99,7 +99,7 @@ export const loginthrottle = psdb.getTable<{
 export const loginattempts = psdb.getTable<{
 	count: number;
 	time: number;
-	userid: number;
+	userid: string;
 }>('loginattempts', 'userid');
 
 export const usermodlog = psdb.getTable<{
