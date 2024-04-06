@@ -253,7 +253,7 @@ export class Session {
 			}
 			const userstate = await users.get(userid);
 			if (userstate) {
-				if (userstate.banstate >= 100 || ((userstate).password && userstate.nonce)) {
+				if (userstate.banstate >= 100 || ((userstate as any).password && userstate.nonce)) {
 					return ';;Your username is no longer available.';
 				}
 				if (userstate.email?.endsWith('@')) {
@@ -358,12 +358,12 @@ export class Session {
 	async passwordVerify(name: string, pass: string) {
 		const ip = this.context.getIp();
 		const userid = toID(name);
-		let attempts = await loginattempts.get(userid);
+		let attempts = (await loginattempts.get(userid)) as {time: number, count: number};
 		if (attempts) {
 			// too many attempts, no valid login session from that ip on that userid
 			if (attempts.count >= 500 && !(await sessions.selectOne()`WHERE ip = ${ip} AND userid = ${userid}`)) {
 				attempts.count++;
-				await attempts.update(userid, {time: time(), count: attempts.count});
+				await loginattempts.update(userid, {time: time(), count: attempts.count});
 				throw new ActionError(
 					`Too many unrecognized login attempts have been made against this account. Please try again later.`
 				);
@@ -430,11 +430,11 @@ export class Session {
 				}
 				if (attempts) {
 					attempts.count++;
-					await attempts.update(userid, {
+					await loginattempts.update(userid, {
 						count: attempts.count, time: time(),
 					});
 				} else {
-					await attempts.insert({userid, ip, time: time()});
+					await loginattempts.insert({userid, ip, time: time()});
 				}
 				return false;
 			}
