@@ -350,7 +350,7 @@ export class Server {
 	async handle(req: http.IncomingMessage, res: http.ServerResponse) {
 		this.activeRequests++;
 		res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-
+		let useDispatchPrefix = true;
 		try {
 			const body = await ActionContext.getBody(req);
 			let result;
@@ -368,13 +368,15 @@ export class Server {
 					if (context.body !== curBody) context = new ActionContext(req, res, curBody);
 					result.push(await context.executeActions());
 				}
+				if (!context.useDispatchPrefix) useDispatchPrefix = false;
 			} else {
 				const context = new ActionContext(req, res, body);
 				// turn undefined into null so it can be JSON stringified
 				result = await context.executeActions() ?? null;
+				if (!context.useDispatchPrefix) useDispatchPrefix = false;
 			}
 			this.ensureHeaders(res);
-			res.writeHead(200).end(this.stringify(result));
+			res.writeHead(200).end(this.stringify(result, useDispatchPrefix));
 		} catch (e: any) {
 			this.ensureHeaders(res);
 			if (e instanceof ActionError) {
@@ -403,13 +405,13 @@ export class Server {
 		});
 		return this.closing;
 	}
-	stringify(response: any) {
+	stringify(response: any, useDispatchPrefix = true) {
 		if (typeof response === 'string') {
 			return response; // allow ending with just strings;
 		}
 		// see DISPATCH_PREFIX
 		return (
-			(this.useDispatchPrefix ? DISPATCH_PREFIX : "") + JSON.stringify(response)
+			(useDispatchPrefix ? DISPATCH_PREFIX : "") + JSON.stringify(response)
 		);
 	}
 }
