@@ -1,5 +1,5 @@
 FROM cockroachdb/cockroach:latest as base
-COPY src/schemas/replays.sql /docker-entrypoint-initdb.d/replays.sql
-# CockroachDB listens on port 26257. Overwrite default EXPOSE that also exposes 8080
-# EXPOSE 26257
+COPY src/schemas/replays.sql /docker-entrypoint-initdb.d/0_replays.sql
+COPY src/schemas/dummydata/replays.sql /docker-entrypoint-initdb.d/1_replays.sql
+COPY src/schemas/dummydata/replays.csv src/schemas/dummydata/replays.csv
 CMD ["start-single-node", "--insecure"]
