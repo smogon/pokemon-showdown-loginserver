@@ -235,9 +235,7 @@ export const Replays = new class {
 	}
 	
 	getBatch(ids: string[]) {
-		return replays.selectAll(
-			SQL`*`
-		)`WHERE private = 0 AND id IN (${ids}) LIMIT 51`.then(this.toReplays);
+		return replays.selectAll()`WHERE private = 0 AND id IN (${ids}) LIMIT 51`.then(this.toReplays);
 	} 
 };
 
