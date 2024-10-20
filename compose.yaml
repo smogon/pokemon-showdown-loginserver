@@ -12,7 +12,7 @@ services:
     develop:
       watch:
         - action: rebuild
-          path: .
+          path: src
   replay-db:
     restart: always
     hostname: replaysdb
