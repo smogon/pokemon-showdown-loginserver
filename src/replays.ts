@@ -235,16 +235,10 @@ export const Replays = new class {
 	}
 	
 	getBatch(ids: string[]) {
-		let idsForQuery = '';
-		for (var i = 0; i < ids.length; i++) {
-			const id = ids[i];
-			idsForQuery += `'${id}'`;
-			if (i !== ids.length - 1) idsForQuery += ",";
-		}
 		return replays.selectAll(
 			SQL`*`
-		)`WHERE private = 0 AND id IN (${idsForQuery}) LIMIT 51`.then(this.toReplays);
-	}
+		)`WHERE private = 0 AND id IN (${ids}) LIMIT 51`.then(this.toReplays);
+	} 
 };
 
 export default Replays;

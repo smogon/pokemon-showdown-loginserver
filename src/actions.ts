@@ -910,7 +910,6 @@ export const actions: {[k: string]: QueryHandler} = {
 		}
 		const ids: string[] = params.ids.split(',');
 		const results = await Replays.getBatch(ids);
-		console.log(params, ids, results);
 		this.response.setHeader('Content-Type', 'application/json');
 		return JSON.stringify(results);
 	},
