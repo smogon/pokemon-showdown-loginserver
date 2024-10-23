@@ -1,0 +1,32 @@
+services:
+  pokemon-showdown-loginserver:
+    build:
+      context: .
+    environment:
+      NODE_ENV: production
+    ports:
+      - 8080:8080
+    depends_on:
+      replay-db:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: rebuild
+          path: src
+  replay-db:
+    restart: always
+    hostname: replaysdb
+    build:
+      context: .
+      dockerfile: Dockerfile.replays
+    healthcheck:
+        test: curl --request GET --url 'http://localhost:8080/api/v2/health/?ready=True'
+        interval: 1m30s
+        timeout: 10s
+        retries: 3
+        start_period: 40s
+        start_interval: 5s
+    develop:
+      watch:
+        - action: rebuild
+          path: src/schemas

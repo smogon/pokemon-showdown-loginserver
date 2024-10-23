@@ -31,5 +31,5 @@ CREATE TABLE public.replays (
 	INDEX private_uploadtime (private ASC, uploadtime ASC),
 	INDEX private_formatid_uploadtime (private ASC, formatid ASC, uploadtime ASC),
 	INDEX private_formatid_rating (private ASC, formatid ASC, rating ASC),
-	INVERTED INDEX log (log)
+	INVERTED INDEX log (log gin_trgm_ops)
 );
