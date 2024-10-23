@@ -58,7 +58,8 @@ const suspects: Record<string, {startDate: number, reqs: SuspectReqs}> = loadDat
 const coil: Record<string, number> = loadData(Config.coilpath);
 
 if (Config.suspectpath) {
-	watchFile(Config.suspectpath,
+	watchFile(
+		Config.suspectpath,
 		() => Object.assign(suspects, loadData(Config.suspectpath))
 	);
 }
@@ -66,15 +67,15 @@ if (Config.coilpath) {
 	watchFile(Config.coilpath, () => Object.assign(coil, loadData(Config.coilpath)));
 }
 
-const redundantFetch = async (url: string, data: RequestInit, attempts = 0): Promise<void> => {
+const redundantFetch = async (targetUrl: string, data: RequestInit, attempts = 0): Promise<void> => {
 	if (attempts >= 10) return;
 	try {
-		await fetch(url, data);
+		await fetch(targetUrl, data);
 	} catch (e: any) {
 		if (e.code === 400) return console.error('400 on Smogon request', e, data);
-		return redundantFetch(url, data, attempts++);
+		return redundantFetch(targetUrl, data, attempts++);
 	}
-}
+};
 
 export const actions: {[k: string]: QueryHandler} = {
 	async register(params) {
@@ -1043,7 +1044,6 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (!(reqs.gxe || reqs.elo || reqs.coil) || Object.values(reqs).some(x => typeof x !== 'number')) {
 			throw new ActionError("Invalid reqs sent.");
 		}
-		const suspects = loadData(Config.suspectpath);
 		suspects[id] = {
 			startDate: time(),
 			reqs,
