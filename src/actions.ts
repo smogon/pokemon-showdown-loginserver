@@ -909,8 +909,7 @@ export const actions: {[k: string]: QueryHandler} = {
 			throw new ActionError("Invalid batch replay request, must provide ids");
 		}
 		const ids: string[] = params.ids.split(',').slice(0, 51);
-		const results = await Replays.getBatch(ids);
-		return results;
+		return Replays.getBatch(ids);
 	},
 	// sent by ps server
 	async 'smogon/validate'(params) {
