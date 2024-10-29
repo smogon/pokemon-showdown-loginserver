@@ -417,7 +417,7 @@ export const actions: {[k: string]: QueryHandler} = {
 
 		const suspect = await tables.suspects.get(formatid);
 		if (suspect) {
-			const reqs = {elo: suspect.elo, gxe: suspect.gxe, coil: suspect.gxe};
+			const reqs = {elo: suspect.elo, gxe: suspect.gxe, coil: suspect.coil};
 			for (const rating of [p1rating, p2rating]) {
 				checkSuspectVerified(rating, suspect, reqs);
 			}
