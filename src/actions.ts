@@ -908,7 +908,8 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (!params.ids) {
 			throw new ActionError("Invalid batch replay request, must provide ids");
 		}
-		const ids = params.ids.split(',').slice(0, 51);
+		const ids = params.ids.split(',');
+		if (ids.length > 51) throw new ActionError(`Limit 51 IDs (you have ${ids.length}).`);
 		return Replays.getBatch(ids);
 	},
 	// sent by ps server
