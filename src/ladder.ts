@@ -388,7 +388,10 @@ export class GlickoPlayer {
 		// Follow along the steps using: http://www.glicko.net/glicko/glicko.pdf
 
 		if (m.length === 0) {
-			const RD = Math.sqrt((this.rd * this.rd) + (this.c * this.c));
+			let RD = Math.sqrt((this.rd * this.rd) + (this.c * this.c));
+			if (RD > this.RDmax) {
+				RD = this.RDmax;
+			}
 			return {R: this.rating, RD};
 		}
 
