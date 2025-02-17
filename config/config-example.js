@@ -12,12 +12,13 @@ exports.mysql = {
 /** For the replay databases */
 exports.replaysdb = {
 	charset: "utf8",
-	database: "ps",
+	database: "defaultdb",
 	password: "",
-	host: 'localhost',
+	host: 'replaysdb',
 	user: "root",
 	socketPath: '',
-	prefix: "ntbb_",
+	prefix: "",
+	port: 26257,
 };
 
 /**
@@ -106,8 +107,6 @@ exports.challengekeyid = 4;
 /**
  * DBs.
  */
-/** @type {typeof exports.mysql | undefined}*/
-exports.replaysdb = undefined;
 /** @type {typeof exports.mysql | undefined}*/
 exports.ladderdb = undefined;
 
