@@ -470,6 +470,21 @@ export const actions: {[k: string]: QueryHandler} = {
 		return rating?.elo || 1000;
 	},
 
+	async rating(params) {
+		const server = await this.getServer(true);
+		if (server?.id !== Config.mainserver) {
+			// legacy error
+			return {errorip: "This ladder is not for your server. You should turn off Config.remoteladder."};
+		}
+		if (!toID(params.format)) throw new ActionError("Specify a format.");
+		const ladder = new Ladder(params.format!);
+		if (!Ladder.isValidPlayer(params.user)) return {elo: 1000, rpr: 1500, rprd: 130};
+
+		const rating = await ladder.getRating(params.user!);
+		if (!rating) return {elo: 1000, rpr: 1500, rprd: 130};
+		return {elo: rating.elo, rpr: rating.rpr, rprd: rating.rprd};
+	},
+
 	async restart() {
 		await this.requireMainServer();
 
