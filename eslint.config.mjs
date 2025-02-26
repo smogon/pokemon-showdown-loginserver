@@ -4,6 +4,11 @@ import { configs, configure, globals } from './eslint-ps-standard.mjs';
 
 export default configure([
 	{
+		ignores: [
+			'.dist',
+		],
+	},
+	{
 		name: "JavaScript",
 		files: [
 			'*.mjs', // look mom I'm linting myself!
@@ -38,6 +43,9 @@ export default configure([
 	},
 	{
 		name: "TypeScript tests",
+		files: [
+			"**/*.test.ts",
+		],
 		rules: {
 			"@typescript-eslint/restrict-template-expressions": "off",
 		},
