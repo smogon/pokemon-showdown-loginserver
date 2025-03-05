@@ -3,15 +3,15 @@
  */
 
 export const IPTools = new class {
-	// eslint-disable-next-line max-len
+	privateRelayIPs: { minIP: number, maxIP: number }[] = [];
 	readonly ipRegex = /^(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$/;
-	getCidrRange(cidr: string): {minIP: number; maxIP: number} | null {
+	getCidrRange(cidr: string): { minIP: number, maxIP: number } | null {
 		if (!cidr) return null;
 		const index = cidr.indexOf('/');
 		if (index <= 0) {
 			const ip = IPTools.ipToNumber(cidr);
 			if (ip === null) return null;
-			return {minIP: ip, maxIP: ip};
+			return { minIP: ip, maxIP: ip };
 		}
 		const low = IPTools.ipToNumber(cidr.slice(0, index));
 		const bits = this.parseExactInt(cidr.slice(index + 1));
@@ -19,7 +19,7 @@ export const IPTools = new class {
 		// does << with signed int32s.
 		if (low === null || !bits || bits < 2 || bits > 32) return null;
 		const high = low + (1 << (32 - bits)) - 1;
-		return {minIP: low, maxIP: high};
+		return { minIP: low, maxIP: high };
 	}
 	parseExactInt(str: string): number {
 		if (!/^-?(0|[1-9][0-9]*)$/.test(str)) return NaN;
@@ -50,6 +50,24 @@ export const IPTools = new class {
 		const range = this.getCidrRange(rangeString);
 		if (!range) return false;
 		return range.minIP <= ip && ip <= range.maxIP;
+	}
+
+	async loadPrivateRelayIPs() {
+		const seen = new Set<string>();
+		try {
+			const res = await (await fetch("https://mask-api.icloud.com/egress-ip-ranges.csv")).text();
+			for (const line of res.split('\n')) {
+				const [range] = line.split(',');
+				const [ip] = range.split('/');
+				if (this.ipRegex.test(ip) && !seen.has(range)) {
+					const cidr = this.getCidrRange(range);
+					if (cidr) {
+						this.privateRelayIPs.push(cidr);
+						seen.add(range);
+					}
+				}
+			}
+		} catch {}
 	}
 };
 
