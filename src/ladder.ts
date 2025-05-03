@@ -347,7 +347,6 @@ export class GlickoPlayer {
 	readonly piSquared = Math.PI ** 2;
 	readonly RDmax = 130.0;
 	readonly RDmin = 25.0;
-	readonly 
 	c: number;
 	readonly q = 0.00575646273;
 	m: MatchElement[] = [];
