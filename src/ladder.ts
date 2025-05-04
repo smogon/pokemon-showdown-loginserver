@@ -8,6 +8,13 @@
 import { toID, time } from './utils';
 import { ladder } from './tables';
 
+/** length of a rating period in days */
+const RPLENDAY = 1;
+/** length of a rating period in seconds */
+const RPLENSEC = 24 * 60 * 60 * RPLENDAY;
+/** rating period offset (9 hours, in seconds) */
+const RPOFFSET = 9 * 60 * 60;
+
 export interface LadderEntry {
 	entryid: number;
 	formatid: string;
@@ -37,13 +44,6 @@ interface MatchElement {
 	RD: number;
 	score: number;
 }
-
-/** length of a rating period in days */
-const RPLENDAY = 1;
-/** length of a rating period in seconds */
-const RPLENSEC = 24 * 60 * 60 * RPLENDAY;
-/** rating period offset (9 hours, in seconds) */
-const RPOFFSET = 9 * 60 * 60;
 
 export class Ladder {
 	formatid: string;
