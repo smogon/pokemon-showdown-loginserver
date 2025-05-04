@@ -9,11 +9,11 @@ import { toID, time } from './utils';
 import { ladder } from './tables';
 
 /** length of a rating period in days */
-const RPLENDAY = 1;
+const RP_LENGTH_DAYS = 1;
 /** length of a rating period in seconds */
-const RPLENSEC = 24 * 60 * 60 * RPLENDAY;
+const RP_LENGTH = 24 * 60 * 60 * RP_LENGTH_DAYS;
 /** rating period offset (9 hours, in seconds) */
-const RPOFFSET = 9 * 60 * 60;
+const RP_OFFSET = 9 * 60 * 60;
 
 export interface LadderEntry {
 	entryid: number;
@@ -51,12 +51,12 @@ export class Ladder {
 		this.formatid = toID(format);
 	}
 	getRP() {
-		const rpnum = Math.trunc((time() - RPOFFSET) / RPLENSEC) + 1;
-		return rpnum * RPLENSEC + RPOFFSET;
+		const rpnum = Math.trunc((time() - RP_OFFSET) / RP_LENGTH) + 1;
+		return rpnum * RP_LENGTH + RP_OFFSET;
 	}
 	nextRP(rp: number) {
-		const rpnum = Math.trunc(rp / RPLENSEC);
-		return (rpnum + 1) * RPLENSEC + RPOFFSET;
+		const rpnum = Math.trunc(rp / RP_LENGTH);
+		return (rpnum + 1) * RP_LENGTH + RP_OFFSET;
 	}
 	clearRating(name: string) {
 		return ladder.updateOne({
@@ -355,7 +355,7 @@ export class GlickoPlayer {
 		// Step 1
 		this.rating = rating;
 		this.rd = rd;
-		this.c = Math.sqrt((this.RDmax * this.RDmax - this.RDmin * this.RDmin) / (365.0 / RPLENDAY));
+		this.c = Math.sqrt((this.RDmax * this.RDmax - this.RDmin * this.RDmin) / (365.0 / RP_LENGTH_DAYS));
 	}
 
 	addWin(otherPlayer: GlickoPlayer) {
