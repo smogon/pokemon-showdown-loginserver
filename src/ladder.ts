@@ -12,7 +12,7 @@ import { ladder } from './tables';
 const RP_LENGTH_DAYS = 1;
 /** length of a rating period in seconds */
 const RP_LENGTH = 24 * 60 * 60 * RP_LENGTH_DAYS;
-/** rating period offset (9 hours, in seconds) */
+/** time in UTC rating periods roll over, in seconds (9am UTC, or 4am Chicago Time) */
 const RP_OFFSET = 9 * 60 * 60;
 
 export interface LadderEntry {
