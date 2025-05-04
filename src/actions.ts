@@ -112,7 +112,7 @@ export function checkSuspectVerified(
 			userData.coil = coilNum;
 			break;
 		case 'elo': case 'gxe':
-			if (suspect[k] && rating[k] >= suspect[k]!) {
+			if (suspect[k] && rating[k] >= suspect[k]) {
 				reqsMet++;
 			}
 			userData[k] = rating[k];
