@@ -134,6 +134,13 @@ exports.crashguardemail = null;
 exports.ssl = null;
 
 /**
+ * Address to bind to.
+ *   This should be kept set to '127.0.0.1' unless you know what you're doing.
+ * @type {string}
+ */
+exports.bindaddress = '127.0.0.1';
+
+/**
  * Port to listen on.
  * @type {number}
  */
