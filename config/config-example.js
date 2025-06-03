@@ -135,10 +135,10 @@ exports.ssl = null;
 
 /**
  * Address to bind to.
- *   This should be kept set to '127.0.0.1' unless you know what you're doing.
- * @type {string}
+ *   Leaving it as `undefined` will result in binding to `0.0.0.0`.
+ * @type {undefined | string}
  */
-exports.bindaddress = '127.0.0.1';
+exports.bindaddress = undefined;
 
 /**
  * Port to listen on.

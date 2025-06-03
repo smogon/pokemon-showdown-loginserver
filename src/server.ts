@@ -329,7 +329,7 @@ export class Server {
 	awaitingEnd?: () => void;
 	closing?: Promise<void>;
 	activeRequests = 0;
-	constructor(port = (Config.port || 8000), host = (Config.bindaddress || "127.0.0.1")) {
+	constructor(port = (Config.port || 8000), host = (Config.bindaddress || "0.0.0.0")) {
 		this.host = host;
 		this.port = port;
 
