@@ -7,6 +7,7 @@
 import { promises as fs, readFileSync, watchFile } from 'fs';
 import * as pathModule from 'path';
 import * as crypto from 'crypto';
+import nodemailer from 'nodemailer';
 import * as url from 'url';
 import { Config } from './config-loader';
 import { Ladder, type LadderEntry } from './ladder';
@@ -28,6 +29,9 @@ export interface Suspect {
 	elo: number | null;
 }
 
+// eslint-disable-next-line
+const EMAIL_REGEX = /(?:[a-z0-9!#$%&\'*+\/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&\'*+\/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])/i;
+const mailer = nodemailer.createTransport(Config.passwordemails.transportOpts);
 const OAUTH_TOKEN_TIME = 2 * 7 * 24 * 60 * 60 * 1000;
 
 async function getOAuthClient(clientId?: string, origin?: string) {
@@ -271,7 +275,12 @@ export const actions: { [k: string]: QueryHandler } = {
 
 	async upkeep(params) {
 		const challengeprefix = this.verifyCrossDomainRequest();
-		const res = { assertion: '', username: '', loggedin: false };
+		const res = {
+			assertion: '',
+			username: '',
+			loggedin: false,
+			curuser: {} as {email?: string},
+		};
 		const curuser = this.user;
 		let userid = '';
 		if (curuser.id !== 'guest') {
@@ -286,6 +295,9 @@ export const actions: { [k: string]: QueryHandler } = {
 			);
 		}
 		res.loggedin = !!curuser.loggedIn;
+		if (res.loggedin) {
+			res.curuser = {email: this.user.email};
+		}
 		return res;
 	},
 
@@ -703,6 +715,131 @@ export const actions: { [k: string]: QueryHandler } = {
 		return {
 			matches: await tables.users.selectAll(['userid', 'banstate'])`WHERE ip = ${res.ip}`,
 		};
+	},
+	async setemail(params) {
+		if (!this.user.loggedIn) {
+			throw new ActionError(`You must be logged in to set an email.`);
+		}
+		if (!params.email || typeof params.email !== 'string') {
+			throw new ActionError(`You must send an email address.`);
+		}
+		const email = EMAIL_REGEX.exec(params.email)?.[0];
+		if (!email) throw new ActionError(`Email is invalid or already taken.`);
+		const data = await tables.users.get(this.user.id);
+		if (!data) throw new ActionError(`You are not registered.`);
+		if (data.email?.endsWith('@')) {
+			throw new ActionError(`You have 2FA, and do not need to set an email for password resets.`);
+		}
+		const emailUsed = await tables.users.selectAll(['userid'])`WHERE email = ${email}`;
+		if (emailUsed.length) {
+			throw new ActionError(`Email is invalid or already taken.`);
+		}
+
+		const pass = crypto.randomBytes(10).toString('hex');
+		await tables.users.update(this.user.id, {
+			email: `!${pass}!${time()}!${email}!`,
+		});
+		const confirmURL = `https://${Config.routes.client}/api/confirmemail?token=${pass}`;
+		await mailer.sendMail({
+			from: Config.passwordemails.from,
+			to: email,
+			subject: "Pokemon Showdown email confirmation",
+			text: (
+				`Someone tried to bind this email to the Pokemon Showdown username ${this.user.id}\n` +
+				`Please navigate to the URL ${confirmURL}\n` +
+				`Not you? Please contact staff by typing /ht in any chatroom on Pokemon Showdown. \n` +
+				`If you are unable to do so, visit the Help chatroom.`
+			),
+			html: (
+				`Someone tried to bind this email to the Pokemon Showdown username ${this.user.id}\n` +
+				`Click <a href="${confirmURL}">this link</a> to complete the link.<br />` +
+				`Not you? Please contact staff by typing <code>/ht</code> in any chatroom on Pokemon Showdown. <br />` +
+				`If you are unable to do so, visit the <a href="${Config.routes.client}/help">Help</a> chatroom.`
+			),
+		});
+		return {success: true};
+	},
+	async confirmemail(params) {
+		if (!this.user.loggedIn) throw new ActionError("Not logged in.");
+		const pass = toID(params.token);
+		if (!pass) throw new ActionError(`Invalid confirmation token.`);
+		const userData = await tables.users.get(this.user.id);
+		if (!userData || !userData.email || !userData?.email.startsWith('!')) {
+			throw new ActionError(`Invalid confirmation request.`);
+		}
+		// `!${pass}!${time()}!${email}!`,
+		const [, targetPass, rawTime, email] = userData.email.split('!');
+		if (toID(targetPass) !== pass) {
+			throw new ActionError(`Invalid confirmation token. Please try again later.`);
+		}
+		const validateTime = Number(rawTime);
+		if (time() > (validateTime + (60 * 60 * 12))) {
+			throw new ActionError(`Confirmation token expired. Please try again.`);
+		}
+		const result = await tables.users.update(this.user.id, {email});
+		return {
+			success: !!result.changedRows,
+		};
+	},
+	async clearemail() {
+		if (!this.user.loggedIn) {
+			throw new ActionError(`You must be logged in to edit your email.`);
+		}
+		const data = await tables.users.get(this.user.id);
+		if (!data) throw new ActionError(`You are not registered.`);
+		if (data.email?.endsWith('@')) {
+			throw new ActionError(
+				`You have 2FA, and need an administrator to set/unset your email manually.`
+			);
+		}
+		const result = await tables.users.update(this.user.id, {email: null});
+
+		delete (data as any).passwordhash;
+		return {
+			success: !!result.changedRows,
+			curuser: {loggedin: true, userid: this.user.id, username: data.username, email: null},
+		};
+	},
+	async resetpassword(params) {
+		if (typeof params.email !== 'string' || !params.email) {
+			throw new ActionError(`You must provide an email address.`);
+		}
+		const email = EMAIL_REGEX.exec(params.email)?.[0];
+		if (!email) {
+			throw new ActionError(`Invalid email sent.`);
+		}
+		const data = await tables.users.selectOne()`WHERE email = ${email}`;
+		if (!data) {
+			// no user associated with that email.
+			// ...pretend like it succeeded (we don't wanna leak that it's in use, after all)
+			return {success: true};
+		}
+		if (!data.email) {
+			// should literally never happen
+			throw new Error(`Account data found with no email, but had an email match`);
+		}
+		if (data.email.endsWith('@')) {
+			throw new ActionError(`You have 2FA, and so do not need a password reset.`);
+		}
+		const token = await this.session.createPasswordResetToken(data.username);
+
+		await mailer.sendMail({
+			from: Config.passwordemails.from,
+			to: data.email,
+			subject: "Pokemon Showdown account password reset",
+			text: (
+				`You requested a password reset for the Pokemon Showdown account ${data.userid}. Click this link https://${Config.routes.root}/resetpassword/${token} and follow the instructions to change your password.\n` +
+				`Not you? Please contact staff by typing /ht in any chatroom on Pokemon Showdown. \n` +
+				`If you are unable to do so, visit the Help chatroom.`
+			),
+			html: (
+				`You requested a password reset for the Pokemon Showdown account ${data.userid}. ` +
+				`Click <a href="https://${Config.routes.root}/resetpassword/${token}">this link</a> and follow the instructions to change your password.<br />` +
+				`Not you? Please contact staff by typing <code>/ht</code> in any chatroom on Pokemon Showdown. <br />` +
+				`If you are unable to do so, visit the <a href="${Config.routes.client}/help">Help</a> chatroom.`
+			),
+		});
+		return {success: true};
 	},
 	// oauth is broken into a few parts
 	// oauth/page - public-facing part
