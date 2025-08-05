@@ -8,13 +8,12 @@ export function toID(text: any): string {
 		text = text.userid;
 	}
 	if (typeof text !== 'string' && typeof text !== 'number') return '';
-	return ('' + text).toLowerCase().replace(/[^a-z0-9]+/g, '');
+	return `${text}`.toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
 export function time() {
-	// php has this with unix seconds. so we have to as well.
-	// for legacy reasons. Yes, I hate it too.
-	return Math.floor(Date.now() / 1000);
+	// Date.now() is in milliseconds but Unix timestamps are in seconds
+	return Math.trunc(Date.now() / 1000);
 }
 
 export function bash(command: string, cwd?: string): Promise<[number, string, string]> {
@@ -98,10 +97,48 @@ export function signAsync(algo: string, data: string, key: string) {
 
 export function escapeHTML(str: string | number) {
 	if (str === null || str === undefined) return '';
-	return ('' + str)
+	return `${str}`
 		.replace(/&/g, '&amp;')
 		.replace(/</g, '&lt;')
 		.replace(/>/g, '&gt;')
 		.replace(/"/g, '&quot;')
 		.replace(/'/g, '&apos;');
+}
+
+export class TimeSorter {
+	private data: Record<string, { min: number, max: number, count: number }> = {};
+	add(key: string, timestamp: number) {
+		if (this.data[key]) {
+			if (this.data[key].min > timestamp) {
+				this.data[key].min = timestamp;
+			}
+			if (timestamp > this.data[key].max) {
+				this.data[key].max = timestamp;
+			}
+			this.data[key].count++;
+		} else {
+			this.data[key] = { min: timestamp, max: timestamp, count: 1 };
+		}
+	}
+	toJSON(): TimeSorter['data'] {
+		return this.data;
+	}
+	merge(other: TimeSorter | TimeSorter['data']) {
+		if (other instanceof TimeSorter) {
+			other = other.toJSON();
+		}
+		for (const k in other) {
+			if (this.data[k]) {
+				if (other[k].min < this.data[k].min) {
+					this.data[k].min = other[k].min;
+				}
+				if (other[k].max > this.data[k].max) {
+					this.data[k].max = other[k].max;
+				}
+				this.data[k].count += other[k].count;
+			} else {
+				this.data[k] = other[k];
+			}
+		}
+	}
 }

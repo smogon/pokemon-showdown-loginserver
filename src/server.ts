@@ -8,11 +8,11 @@ import * as https from 'https';
 import * as child from 'child_process';
 import * as dns from 'dns';
 import * as fs from 'fs';
-import {toID, md5} from './utils';
-import {Config} from './config-loader';
-import {actions} from './actions';
-import {User, Session} from './user';
-import {URLSearchParams} from 'url';
+import { toID, md5 } from './utils';
+import { Config } from './config-loader';
+import { actions } from './actions';
+import { type User, Session } from './user';
+import { URLSearchParams } from 'url';
 import IPTools from './ip-tools';
 
 /**
@@ -72,7 +72,7 @@ export interface RegisteredServer {
 
 export type QueryHandler = (
 	this: ActionContext, params: ActionRequest
-) => {[k: string]: any} | string | Promise<{[k: string]: any} | string>;
+) => { [k: string]: any } | string | Promise<{ [k: string]: any } | string>;
 
 export class ActionContext {
 	readonly request: http.IncomingMessage;
@@ -82,6 +82,7 @@ export class ActionContext {
 	user: User;
 	private prefix: string | null = null;
 	readonly body: ActionRequest;
+	useDispatchPrefix = true;
 	constructor(req: http.IncomingMessage, res: http.ServerResponse, body: ActionRequest) {
 		this.request = req;
 		this.response = res;
@@ -92,8 +93,7 @@ export class ActionContext {
 	async executeActions() {
 		const body = this.body;
 		const act = body.act;
-
-		if (!act) throw new ActionError('Request needs an act - /api/[act] or JSON {act: [act]}', 404);
+		if (!act) throw new ActionError('Request needs an action - /api/[act] or JSON {act: [act]}', 404);
 		const handler = actions[act];
 		if (!handler) throw new ActionError(`Request type "${act}" was not recognized.`, 404);
 
@@ -108,12 +108,12 @@ export class ActionContext {
 			this.user = await this.session.getUser();
 			const result = await handler.call(this, body);
 
-			if (result === null) return {code: 404};
+			if (result === null) return { code: 404 };
 
 			return result;
 		} catch (e: any) {
-			if (e instanceof ActionError) {
-				return {actionerror: e.message};
+			if (e?.name?.endsWith('ActionError')) {
+				return { actionerror: e.message };
 			}
 
 			for (const k of ['pass', 'password']) delete body[k];
@@ -131,7 +131,7 @@ export class ActionContext {
 		return body;
 	}
 	static sanitizeBody(body: any): ActionRequest {
-		if (typeof body === 'string') return {act: body};
+		if (typeof body === 'string') return { act: body };
 		if (typeof body !== 'object') throw new ActionError("Body must be an object or string", 400);
 		if (!('act' in body)) body.act = ''; // we'll let the action handler throw the error
 		for (const k in body) {
@@ -140,7 +140,7 @@ export class ActionContext {
 		return body as ActionRequest;
 	}
 	static async getBody(req: http.IncomingMessage): Promise<ActionRequest | ActionRequest[]> {
-		let result: {[k: string]: any} = this.parseURLRequest(req);
+		let result: { [k: string]: any } = this.parseURLRequest(req);
 
 		let json;
 		const bodyData = await this.getRequestBody(req);
@@ -162,7 +162,7 @@ export class ActionContext {
 		try {
 			const jsonResult = JSON.parse(json);
 			if (Array.isArray(jsonResult)) {
-				return jsonResult.map(body => this.sanitizeBody({...result, ...body}));
+				return jsonResult.map(body => this.sanitizeBody({ ...result, ...body }));
 			} else {
 				result = Object.assign(result, jsonResult);
 			}
@@ -211,21 +211,29 @@ export class ActionContext {
 	}
 	isTrustedProxy(ip: string) {
 		// account for shit like ::ffff:127.0.0.1
-		return ip === '::ffff:127.0.0.1' || Config.trustedproxies.some(f => IPTools.checkPattern(f, ip));
+		const num = IPTools.ipToNumber(ip) || 0;
+		return (
+			ip === '::ffff:127.0.0.1' ||
+			Config.trustedproxies.some(f => IPTools.checkPattern(f, ip)) ||
+			IPTools.privateRelayIPs.some(f => f.minIP <= num && num <= f.maxIP)
+		);
 	}
 	_ip = '';
 	getIp() {
 		if (this._ip) return this._ip;
-		const ip = this.request.socket.remoteAddress || "";
-		let forwarded = this.request.headers['x-forwarded-for'] || '';
-		if (!Array.isArray(forwarded)) forwarded = forwarded.split(',');
-		const notProxy = forwarded.filter(f => !this.isTrustedProxy(f));
-		if (notProxy.length !== forwarded.length) {
-			this._ip = notProxy.pop() || ip;
-			return this._ip;
+		let ip = this.request.socket.remoteAddress || "";
+		if (this.isTrustedProxy(ip)) {
+			const ips = `${this.request.headers['x-forwarded-for'] as any || ''}`.split(',').reverse();
+			for (let proxy of ips) {
+				proxy = proxy.trim();
+				if (!this.isTrustedProxy(proxy)) {
+					ip = proxy;
+					break;
+				}
+			}
 		}
-		this._ip = ip || '';
-		return this._ip;
+		this._ip = ip;
+		return ip;
 	}
 	setHeader(name: string, value: string | string[]) {
 		this.response.setHeader(name, value);
@@ -252,7 +260,7 @@ export class ActionContext {
 }
 
 export const SimServers = new class SimServersT {
-	servers: {[k: string]: RegisteredServer} = this.loadServers();
+	servers: { [k: string]: RegisteredServer } = this.loadServers();
 	hostCache = new Map<string, string>();
 	constructor() {
 		fs.watchFile(Config.serverlist, (curr, prev) => {
@@ -299,7 +307,7 @@ export const SimServers = new class SimServersT {
 		}
 		return server;
 	}
-	loadServers(path = Config.serverlist): {[k: string]: RegisteredServer} {
+	loadServers(path = Config.serverlist): { [k: string]: RegisteredServer } {
 		if (!path) return {};
 		try {
 			const stdout = child.execFileSync(
@@ -316,15 +324,17 @@ export const SimServers = new class SimServersT {
 export class Server {
 	server: http.Server;
 	httpsServer: https.Server | null;
+	host: string;
 	port: number;
 	awaitingEnd?: () => void;
 	closing?: Promise<void>;
 	activeRequests = 0;
-	constructor(port = (Config.port || 8000)) {
+	constructor(port = (Config.port || 8000), host = (Config.bindaddress || "0.0.0.0")) {
+		this.host = host;
 		this.port = port;
 
 		this.server = http.createServer((req, res) => void this.handle(req, res));
-		this.server.listen(port);
+		this.server.listen(port, host);
 		this.httpsServer = null;
 		if (Config.ssl) {
 			this.httpsServer = https.createServer(Config.ssl, (req, res) => void this.handle(req, res));
@@ -336,8 +346,8 @@ export class Server {
 			return console.log(`${source} crashed`, error, details);
 		}
 		try {
-			const {crashlogger} = require(Config.pspath);
-			crashlogger(error, source, details, Config.crashguardemail);
+			const { crashlogger } = require(Config.pspath);
+			crashlogger(error, source, { ...details, date: new Date().toISOString() }, Config.crashguardemail);
 		} catch (e) {
 			// don't have data/pokemon-showdown built? something else went wrong? oh well
 			console.log('CRASH', error);
@@ -347,7 +357,7 @@ export class Server {
 	async handle(req: http.IncomingMessage, res: http.ServerResponse) {
 		this.activeRequests++;
 		res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-
+		let useDispatchPrefix = true;
 		try {
 			const body = await ActionContext.getBody(req);
 			let result;
@@ -365,20 +375,22 @@ export class Server {
 					if (context.body !== curBody) context = new ActionContext(req, res, curBody);
 					result.push(await context.executeActions());
 				}
+				if (!context.useDispatchPrefix) useDispatchPrefix = false;
 			} else {
 				const context = new ActionContext(req, res, body);
 				// turn undefined into null so it can be JSON stringified
 				result = await context.executeActions() ?? null;
+				if (!context.useDispatchPrefix) useDispatchPrefix = false;
 			}
 			this.ensureHeaders(res);
-			res.writeHead(200).end(Server.stringify(result));
+			res.writeHead(200).end(this.stringify(result, useDispatchPrefix));
 		} catch (e: any) {
 			this.ensureHeaders(res);
-			if (e instanceof ActionError) {
+			if (e?.name?.endsWith('ActionError')) {
 				if (e.httpStatus) {
 					res.writeHead(e.httpStatus).end('Error: ' + e.message);
 				} else {
-					res.writeHead(200).end(Server.stringify({actionerror: e.message}));
+					res.writeHead(200).end(this.stringify({ actionerror: e.message }));
 				}
 			} else {
 				Server.crashlog(e);
@@ -400,11 +412,15 @@ export class Server {
 		});
 		return this.closing;
 	}
-	static stringify(response: any) {
+	stringify(response: any, useDispatchPrefix = true) {
 		if (typeof response === 'string') {
 			return response; // allow ending with just strings;
 		}
 		// see DISPATCH_PREFIX
-		return DISPATCH_PREFIX + JSON.stringify(response);
+		return (
+			(useDispatchPrefix ? DISPATCH_PREFIX : "") + JSON.stringify(response)
+		);
 	}
 }
+
+void IPTools.loadPrivateRelayIPs();

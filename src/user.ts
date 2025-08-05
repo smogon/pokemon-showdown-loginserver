@@ -8,13 +8,15 @@
  */
 
 import * as bcrypt from 'bcrypt';
-import {Config} from './config-loader';
+import { Config } from './config-loader';
 import * as crypto from 'crypto';
 import * as gal from 'google-auth-library';
-import {SQL} from './database';
-import {ActionError, ActionContext} from './server';
-import {toID, time, signAsync} from './utils';
-import {ladder, loginthrottle, sessions, users, usermodlog} from './tables';
+import { SQL } from './database';
+import { ActionError, type ActionContext } from './server';
+import { toID, time, signAsync } from './utils';
+import {
+	ladder, loginthrottle, loginattempts, sessions, users, usermodlog,
+} from './tables';
 
 const SID_DURATION = 2 * 7 * 24 * 60 * 60;
 const LOGINTIME_INTERVAL = 24 * 60 * 60;
@@ -25,6 +27,7 @@ export class User {
 	id = 'guest';
 	loggedIn = '';
 	email?: string;
+	group = 0;
 	constructor(name?: string) {
 		if (name) this.setName(name);
 	}
@@ -40,6 +43,14 @@ export class User {
 	logout() {
 		this.setName('Guest');
 		this.loggedIn = '';
+	}
+	isSysop() {
+		return Config.sysops.includes(this.id);
+	}
+	isLeader() {
+		// 2 - admin with 2fa
+		// 6 - admin (no 2fa)
+		return [2, 6].includes(this.group);
 	}
 }
 
@@ -91,13 +102,13 @@ export class Session {
 			this.context.setHeader(
 				"Set-Cookie",
 				`sid=${encodeURIComponent(`,,${this.sidhash}`)}; ` +
-					`Max-Age=0; Domain=${Config.routes.root}; Path=/; Secure; SameSite=None`
+				`Max-Age=0; Domain=${Config.routes.root}; Path=/; Secure; SameSite=None`
 			);
 		} else {
 			this.context.setHeader(
 				"Set-Cookie",
 				`sid=;` +
-					`Max-Age=0; Domain=${Config.routes.root}; Path=/; Secure; SameSite=None`
+				`Max-Age=0; Domain=${Config.routes.root}; Path=/; Secure; SameSite=None`
 			);
 		}
 	}
@@ -117,7 +128,7 @@ export class Session {
 	async getRecentRegistrationCount(period: number) {
 		const ip = this.context.getIp();
 		const timestamp = time() - period;
-		const result = await users.selectOne<{regcount: number}>(
+		const result = await users.selectOne<{ regcount: number }>(
 			SQL`COUNT(*) AS regcount`
 		)`WHERE \`ip\` = ${ip} AND \`registertime\` > ${timestamp}`;
 		return result?.['regcount'] || 0;
@@ -195,7 +206,7 @@ export class Session {
 		}
 		let userType = '';
 		const userData = user.loggedIn ? await users.get(user.id, SQL`banstate, registertime, logintime`) : null;
-		const {banstate, registertime, logintime} = userData || {
+		const { banstate, registertime, logintime } = userData || {
 			banstate: 0, registertime: 0, logintime: 0,
 		};
 		const server = await this.context.getServer();
@@ -204,7 +215,7 @@ export class Session {
 		if (user.loggedIn === userid) {
 			// already logged in
 			userType = '2';
-			if (Config.sysops.includes(user.id)) {
+			if (user.isSysop()) {
 				userType = '3';
 			} else {
 				const customType = (Config as any).getUserType?.call(
@@ -230,15 +241,15 @@ export class Session {
 						const ladders = await ladder.selectOne(['formatid'])`WHERE userid = ${userid} AND w != 0`;
 						if (ladders) {
 							userType = '4';
-							void users.update(userid, {banstate: -10});
+							void users.update(userid, { banstate: -10 });
 						}
 					}
 				}
 			}
 			if (!logintime || time() - logintime > LOGINTIME_INTERVAL) {
-				await users.update(userid, {logintime: time(), loginip: ip});
+				await users.update(userid, { logintime: time(), loginip: ip });
 			}
-			data = userid + ',' + userType + ',' + time() + ',' + serverHost;
+			data = `${userid},${userType},${time()},${serverHost}`;
 		} else {
 			if (userid.length < 1 || !/[a-z]/.test(userid)) {
 				return ';;Your username must contain at least one letter.';
@@ -256,7 +267,7 @@ export class Session {
 				// Unregistered username.
 				userType = '1';
 				if (forceUsertype) userType = forceUsertype;
-				data = userid + ',' + userType + ',' + time() + ',' + serverHost;
+				data = `${userid},${userType},${time()},${serverHost}`;
 			}
 		}
 		let splitChallenge: string[] = [];
@@ -326,14 +337,14 @@ export class Session {
 		}
 		return user;
 	}
-	static oauth = new gal.OAuth2Client(Config.gapi_clientid, '', '');
+	static oauth = new gal.OAuth2Client();
 	async changePassword(name: string, pass: string) {
 		const userid = toID(name);
 
 		const userData = await users.get(userid);
 		if (!userData) return false;
 
-		const entry = 'Password changed from: ' + userData.passwordhash;
+		const entry = `Password changed from: ${userData.passwordhash!}`;
 		await usermodlog.insert({
 			userid, actorid: userid, date: time(), ip: this.context.getIp(), entry,
 		});
@@ -350,9 +361,33 @@ export class Session {
 	async passwordVerify(name: string, pass: string) {
 		const ip = this.context.getIp();
 		const userid = toID(name);
+		let attempts = (await loginattempts.get(userid)) as { time: number, count: number };
+		if (attempts) {
+			const shouldBeBlocked = (
+				// too many attempts
+				attempts.count >= 500 && !(
+					// has an active login session on that IP - it's them, let them through
+					await sessions.selectOne()`WHERE ip = ${ip} AND userid = ${userid}` ||
+					// 2fa, allow them through
+					!!(await users.get(userid))?.email
+				)
+			);
+			if (shouldBeBlocked) {
+				attempts.count++;
+				await loginattempts.update(userid, { time: time(), count: attempts.count });
+				throw new ActionError(
+					`Too many unrecognized login attempts have been made against this account. Please try again later.`
+				);
+			} else if (attempts.time + 24 * 60 * 60 < time()) {
+				attempts = {
+					time: time(),
+					count: 0,
+				};
+			}
+		}
 		let throttleTable = await loginthrottle.get(
 			ip, ['count', 'time']
-		) as {count: number; time: number} || null;
+		) as { count: number, time: number } || null;
 		if (throttleTable) {
 			if (throttleTable.count > 500) {
 				throttleTable.count++;
@@ -373,19 +408,19 @@ export class Session {
 		const userData = await users.get(userid);
 		if (userData?.email?.endsWith('@')) {
 			try {
-				const payload = await new Promise<{[k: string]: any} | null>((resolve, reject) => {
-					Session.oauth.verifyIdToken({
-						idToken: pass,
-						audience: Config.gapi_clientid,
-					}, (e, login) => {
-						if (e) return reject(e);
-						resolve(login?.getPayload() || null);
-					});
+				const ticket = await Session.oauth.verifyIdToken({
+					idToken: pass,
+					audience: Config.gapi_clientid,
 				});
-				if (!payload) return false; // dunno why this would happen.
-				if (!payload.aud.includes(Config.gapi_clientid)) return false;
-				return payload.email === userData.email.slice(0, -1);
+				const payload = ticket.getPayload()!; // dunno why this would happen.
+				if (payload.email?.toLowerCase() !== userData.email.slice(0, -1).toLowerCase()) {
+					throw new ActionError(
+						`Wrong Google account for this Showdown account (${payload.email!} doesn't match this account)`
+					);
+				}
+				return true;
 			} catch {
+				// throw new ActionError(`OAuth error: ${e}`);
 				return false;
 			}
 		}
@@ -403,6 +438,14 @@ export class Session {
 					await loginthrottle.insert({
 						ip, count: 1, lastuserid: userid, time: time(),
 					});
+				}
+				if (attempts) {
+					attempts.count++;
+					await loginattempts.update(userid, {
+						count: attempts.count, time: time(),
+					});
+				} else {
+					await loginattempts.insert({ userid, count: 1, time: time() });
 				}
 				return false;
 			}
@@ -446,7 +489,7 @@ export class Session {
 		let sid = '';
 		let session = 0;
 		const scsplit = scookie.split(',').filter(Boolean);
-		let cookieName;
+		let cookieName = '';
 		if (scsplit.length === 3) {
 			cookieName = scsplit[0];
 			session = parseInt(scsplit[1]);
@@ -473,7 +516,8 @@ export class Session {
 
 		// okay, legit session ID - you're logged in now.
 		const user = new User();
-		user.login(cookieName as string);
+		user.login(cookieName);
+		user.group = (await users.get(user.id))?.group || 0;
 
 		this.sidhash = sid;
 		this.session = session;
@@ -482,7 +526,7 @@ export class Session {
 	static sanitizeHash(pass: string) {
 		// https://youtu.be/rnzMkJocw6Q?t=9
 		// (php uses $2y, js uses $2b)
-		if (!pass.startsWith('$2b')) {
+		if (pass.startsWith('$2y')) {
 			pass = `$2b${pass.slice(3)}`;
 		}
 		return pass;

@@ -1,4 +1,4 @@
-// MySQL DB settings.
+/** For the login and ladder databases */
 exports.mysql = {
 	charset: "utf8",
 	database: "ps",
@@ -8,6 +8,24 @@ exports.mysql = {
 	socketPath: '',
 	prefix: "ntbb_",
 };
+
+/** For the replay databases */
+exports.replaysdb = {
+	charset: "utf8",
+	database: "ps",
+	password: "",
+	host: 'localhost',
+	user: "root",
+	socketPath: '',
+	prefix: "ntbb_",
+};
+
+/**
+ * For the friends database
+ *
+ * @type {import('pg').PoolConfig | null}
+ */
+exports.postgres = null;
 
 /** For 2FA verification. */
 exports.gapi_clientid = '';
@@ -34,8 +52,10 @@ exports.mainserver = 'showdown';
 exports.serverlist = '/var/www/html/play.pokemonshowdown.com/config/servers.inc.php';
 /** @type {string | null} */
 exports.colorpath = null;
+/** @type {string | null} */
+exports.coilpath = null;
 
-/** @type {string | null} Password, whether to debug error stacks in request or not*/
+/** @type {string | null} Password, whether to debug error stacks in request or not */
 exports.devmode = null;
 
 // absolute path to your PS instance. can use the checked-out client that the client clones in.
@@ -87,9 +107,9 @@ exports.challengekeyid = 4;
 /**
  * DBs.
  */
-/** @type {typeof exports.mysql | undefined}*/
+/** @type {typeof exports.mysql | undefined} */
 exports.replaysdb = undefined;
-/** @type {typeof exports.mysql | undefined}*/
+/** @type {typeof exports.mysql | undefined} */
 exports.ladderdb = undefined;
 
 /**
@@ -115,6 +135,13 @@ exports.crashguardemail = null;
 exports.ssl = null;
 
 /**
+ * Address to bind to.
+ *   Leaving it as `undefined` will result in binding to `0.0.0.0`.
+ * @type {undefined | string}
+ */
+exports.bindaddress = undefined;
+
+/**
  * Port to listen on.
  * @type {number}
  */
@@ -132,6 +159,16 @@ exports.watchconfig = true;
  */
 exports.restartip = null;
 
+/**
+ * An IP to allow Smogon acc-linking requests from.
+ * @type {null | string}
+ */
+exports.smogonip = null;
+/**
+ * Retain smogon temporary encryption key at this path
+ * @type {null | string}
+ */
+exports.smogonpath = null;
 /**
  * Custom actions for your loginserver.
  * @type {{[k: string]: import('../src/server').QueryHandler} | null}
@@ -163,6 +200,18 @@ exports.passwordemails = {
 };
 
 /**
- * @type {import('pg').PoolConfig | null}
+ * @type {null | ((userid: string) => Promise<{[k: string]: {min: number, max: number, count: number}}>)}
+ * Get IPs of a given userid.
  */
-exports.postgres = null;
+exports.getuserips = null;
+
+/**
+ * @type {string | null}
+ * Index of suspect tests active
+ */
+exports.suspectpath = null;
+
+/**
+ * @type {string | null}
+ */
+exports.smogonpublickey = null;

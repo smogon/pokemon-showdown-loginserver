@@ -4,18 +4,30 @@
  * By Mia
  * @author mia-pi-git
  */
-import {Config} from './config-loader';
-import {promises as fs, readFileSync} from 'fs';
-import {Ladder} from './ladder';
-import {Replays} from './replays';
-import {ActionError, QueryHandler, Server} from './server';
-import {toID, updateserver, bash, time, escapeHTML} from './utils';
-import * as tables from './tables';
+import { promises as fs, readFileSync, watchFile } from 'fs';
 import * as pathModule from 'path';
-import IPTools from './ip-tools';
 import * as crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import * as url from 'url';
+import { Config } from './config-loader';
+import { Ladder, type LadderEntry } from './ladder';
+import { Replays } from './replays';
+import { ActionError, type QueryHandler, Server } from './server';
+import { Session } from './user';
+import {
+	toID, updateserver, bash, time, escapeHTML, signAsync, TimeSorter,
+} from './utils';
+import * as tables from './tables';
+import { SQL } from './database';
+import IPTools from './ip-tools';
+
+export interface Suspect {
+	formatid: string;
+	start_date: number;
+	coil: number | null;
+	gxe: number | null;
+	elo: number | null;
+}
 
 // eslint-disable-next-line
 const EMAIL_REGEX = /(?:[a-z0-9!#$%&\'*+\/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&\'*+\/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])/i;
@@ -43,10 +55,121 @@ const OAUTH_AUTHORIZED_CONTENT = readFileSync(
 	'utf-8'
 );
 
-export const actions: {[k: string]: QueryHandler} = {
+function loadData(path: string | null) {
+	try {
+		if (!path) throw new Error();
+		const data = readFileSync(path, 'utf-8');
+		return JSON.parse(data);
+	} catch {
+		return {};
+	}
+}
+
+const verify = (
+	{ data, signature, algo, key }: {
+		data: string, signature: string, algo: string, key: string
+	}
+) => {
+	const verifier = crypto.createVerify(algo);
+	verifier.update(data);
+	let success = false;
+	try {
+		success = verifier.verify(key, signature, 'hex');
+	} catch {}
+
+	return success;
+}
+
+export let coil: Record<string, number> = loadData(Config.coilpath);
+
+if (Config.coilpath) {
+	watchFile(Config.coilpath, () => {
+		coil = loadData(Config.coilpath);
+	});
+}
+
+const redundantFetch = async (targetUrl: string, data: RequestInit, attempts = 0): Promise<Response | null> => {
+	if (attempts >= 10) return null;
+	let out;
+	try {
+		out = await fetch(targetUrl, data);
+	} catch (e: any) {
+		console.log('error in smogon fetch', e);
+		if (e.code === 400) return null;
+		return redundantFetch(targetUrl, data, attempts++);
+	}
+	return out;
+};
+
+export const smogonFetch = async (targetUrl: string, method: string, data: { [k: string]: any }) => {
+	const bodyText = JSON.stringify(data);
+	const hash = await signAsync("RSA-SHA1", bodyText, Config.privatekey);
+	return redundantFetch(`https://www.smogon.com/${targetUrl}`, {
+		method,
+		body: new URLSearchParams({ data: bodyText, hash }),
+	});
+};
+
+export function checkSuspectVerified(
+	rating: LadderEntry,
+	suspect: Suspect
+) {
+	let reqsMet = 0;
+	let reqCount = 0;
+	const userData: Partial<{ elo: number, gxe: number, coil: number }> = {};
+	const reqKeys = ['elo', 'coil', 'gxe'] as const;
+	for (const k of reqKeys) {
+		if (!suspect[k]) continue;
+		reqCount++;
+		switch (k) {
+		case 'coil':
+			const N = rating.w + rating.l + rating.t;
+			const coilNum = Math.round(40.0 * rating.gxe * (2.0 ** (-coil[suspect.formatid] / N)));
+			if (coilNum >= suspect.coil!) {
+				reqsMet++;
+			}
+			userData.coil = coilNum;
+			break;
+		case 'elo': case 'gxe':
+			if (suspect[k] && rating[k] >= suspect[k]!) {
+				reqsMet++;
+			}
+			userData[k] = rating[k];
+			break;
+		}
+	}
+	if (
+		// sanity check for reqs existing just to be totally safe
+		(reqsMet > 0 && reqsMet === reqCount) &&
+		// did not play games before the test began
+		(rating?.first_played && rating.first_played > suspect.start_date)
+	) {
+		void smogonFetch("tools/api/suspect-verify", "POST", {
+			userid: rating.userid,
+			format: suspect.formatid,
+			reqs: {
+				required: { elo: suspect.elo, gxe: suspect.gxe, coil: suspect.coil },
+				actual: userData,
+			},
+			suspectStartDate: suspect.start_date,
+		});
+		return true;
+	}
+	return false;
+}
+
+function exportTeam(team: string) {
+	if (!Config.pspath) return team;
+	const { Teams } = require(Config.pspath);
+	const teamData = Teams.unpack(team);
+	if (!teamData) return team;
+	return Teams.export(teamData);
+}
+
+export const actions: { [k: string]: QueryHandler } = {
 	async register(params) {
 		this.verifyCrossDomainRequest();
-		const {username, password, cpassword, captcha} = params;
+		const { username, password, cpassword, captcha } = params;
 		if (!username) {
 			throw new ActionError(`You must specify a username.`);
 		}
@@ -88,7 +211,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		return {
 			assertion,
 			actionsuccess: !assertion.startsWith(';'),
-			curuser: {loggedin: true, username, userid},
+			curuser: { loggedin: true, username, userid },
 		};
 	},
 
@@ -97,10 +220,10 @@ export const actions: {[k: string]: QueryHandler} = {
 			this.request.method !== "POST" || !params.userid ||
 			params.userid !== this.user.id || this.user.id === 'guest'
 		) {
-			return {actionsuccess: false};
+			return { actionsuccess: false };
 		}
 		await this.session.logout(true);
-		return {actionsuccess: true};
+		return { actionsuccess: true };
 	},
 
 	async login(params) {
@@ -118,7 +241,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		}
 		const challengekeyid = parseInt(params.challengekeyid!) || -1;
 		const actionsuccess = await this.session.login(params.name, params.pass);
-		if (!actionsuccess) return {actionsuccess, assertion: false};
+		if (!actionsuccess) return { actionsuccess, assertion: false };
 		const challenge = params.challstr || params.challenge || "";
 		const assertion = await this.session.getAssertion(
 			userid, challengekeyid, null, challenge, challengeprefix
@@ -127,7 +250,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		return {
 			actionsuccess: true,
 			assertion,
-			curuser: {loggedin: true, username: params.name, userid},
+			curuser: { loggedin: true, username: params.name, userid },
 		};
 	},
 
@@ -137,7 +260,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		const date = parseInt(params.date!);
 		const usercount = parseInt(params.users! || params.usercount!);
 		if (isNaN(date) || isNaN(usercount)) {
-			return {actionsuccess: false};
+			return { actionsuccess: false };
 		}
 
 		await tables.userstats.replace({
@@ -145,9 +268,9 @@ export const actions: {[k: string]: QueryHandler} = {
 		});
 
 		if (server.id === Config.mainserver) {
-			await tables.userstatshistory.insert({date, usercount});
+			await tables.userstatshistory.insert({ date, usercount });
 		}
-		return {actionsuccess: true};
+		return { actionsuccess: true };
 	},
 
 	async upkeep(params) {
@@ -182,42 +305,64 @@ export const actions: {[k: string]: QueryHandler} = {
 		throw new ActionError("Malformed request", 400);
 	},
 
-	async prepreplay(params) {
+	async addreplay(params) {
+		// required params:
+		//   id, format, log, players
+		// optional params:
+		//   inputlog, hidden, password
+
 		const server = await this.getServer(true);
 		if (!server) {
 			// legacy error
-			return {errorip: this.getIp()};
+			return { errorip: this.getIp() };
 		}
 
+		// the server must send all the required values
+		if (!params.id || !params.format || !params.log || !params.players) {
+			throw new ActionError("Required params: id, format, log, players", 400);
+		}
+		// player usernames cannot be longer than 18 characters
+		if (params.players.split(',').some(p => p.length > 18)) {
+			throw new ActionError("Player names must be 18 chars or shorter", 400);
+		}
+		// the battle ID must be valid
+		// the format from the battle ID must match the format ID
 		const extractedFormatId = /^([a-z0-9]+)-[0-9]+$/.exec(`${params.id}`)?.[1];
-		const formatId = /^([a-z0-9]+)$/.exec(`${params.format}`)?.[1];
-		if (
-			// the server must send all the required values
-			!params.id || !params.format || !params.loghash || !params.p1 || !params.p2 ||
-			// player usernames cannot be longer than 18 characters
-			params.p1.length > 18 || params.p2.length > 18 ||
-			// the battle ID must be valid
-			!extractedFormatId ||
-			// the format from the battle ID must match the format ID
-			formatId !== extractedFormatId
-		) {
-			return 0;
+		const formatId = toID(params.format);
+		if (!extractedFormatId || formatId !== extractedFormatId) {
+			throw new ActionError("Format ID must match the one in the replay ID", 400);
 		}
 
 		if (server.id !== Config.mainserver) {
 			params.id = server.id + '-' + params.id;
 		}
-		params.serverid = server.id;
 
-		const result = await Replays.prep(params);
+		const id = ('' + params.id).toLowerCase().replace(/[^a-z0-9-]+/g, '');
+		let isPrivate: 0 | 1 | 2 = params.hidden ? 1 : 0;
+		if (params.hidden === '2') isPrivate = 2;
+		const players = params.players.split(',').map(p => Session.wordfilter(p));
+		const out = await Replays.add({
+			id,
+			log: params.log,
+			players,
+			format: params.format,
+			uploadtime: time(),
+			rating: null,
+			inputlog: params.inputlog || null,
+			private: isPrivate,
+			password: params.password || null,
+		});
 
 		this.setPrefix(''); // No need for prefix since only usable by server.
-		return result;
+		return { replayid: out };
 	},
 
-	uploadreplay(params) {
-		this.setHeader('Content-Type', 'text/plain; charset=utf-8');
-		return Replays.upload(params, this);
+	prepreplay() {
+		throw new ActionError("No longer exists; use addreplay.", 410);
+	},
+
+	uploadreplay() {
+		throw new ActionError("No longer exists; use addreplay.", 410);
 	},
 
 	async invalidatecss() {
@@ -227,9 +372,9 @@ export const actions: {[k: string]: QueryHandler} = {
 		const cssfile = pathModule.join(process.env.CSS_DIR || Config.cssdir, `/${server['id']}.css`);
 		try {
 			await fs.unlink(cssfile);
-			return {actionsuccess: true};
-		} catch (err) {
-			return {actionsuccess: false};
+			return { actionsuccess: true };
+		} catch {
+			return { actionsuccess: false };
 		}
 	},
 
@@ -261,7 +406,7 @@ export const actions: {[k: string]: QueryHandler} = {
 			throw new ActionError('Your new password must be at least 5 characters long.');
 		}
 		const actionsuccess = await this.session.changePassword(this.user.id, params.password);
-		return {actionsuccess};
+		return { actionsuccess };
 	},
 
 	async changeusername(params) {
@@ -282,7 +427,7 @@ export const actions: {[k: string]: QueryHandler} = {
 			username: params.username,
 		});
 		await this.session.setSid();
-		return {actionsuccess};
+		return { actionsuccess };
 	},
 
 	async getassertion(params) {
@@ -304,17 +449,25 @@ export const actions: {[k: string]: QueryHandler} = {
 		const server = await this.getServer(true);
 		if (server?.id !== Config.mainserver) {
 			// legacy error
-			return {errorip: this.getIp()};
+			return { errorip: this.getIp() };
 		}
 
-		if (!toID(params.format)) throw new ActionError("Invalid format.");
+		const formatid = toID(params.format);
+		if (!formatid) throw new ActionError("Invalid format.");
 		if (!params.score) throw new ActionError("Score required.");
-		const ladder = new Ladder(params.format!);
+		const ladder = new Ladder(formatid);
 		if (!Ladder.isValidPlayer(params.p1)) return 0;
 		if (!Ladder.isValidPlayer(params.p2)) return 0;
 
-		const out: {[k: string]: any} = {};
+		const out: { [k: string]: any } = {};
 		const [p1rating, p2rating] = await ladder.addMatch(params.p1!, params.p2!, parseFloat(params.score));
+
+		const suspect = await tables.suspects.get(formatid);
+		if (suspect) {
+			for (const rating of [p1rating, p2rating]) {
+				checkSuspectVerified(rating, suspect);
+			}
+		}
 		out.actionsuccess = true;
 		out.p1rating = p1rating;
 		out.p2rating = p2rating;
@@ -330,14 +483,21 @@ export const actions: {[k: string]: QueryHandler} = {
 		const user = Ladder.isValidPlayer(params.user);
 		if (!user) throw new ActionError("Invalid username.");
 
-		return Ladder.getAllRatings(user);
+		const ratings = await Ladder.getAllRatings(user) as (LadderEntry & { suspect?: boolean })[];
+		for (const rating of ratings) {
+			const suspect = await tables.suspects.get(rating.formatid);
+			if (suspect) {
+				rating.suspect = !!rating.first_played && rating.first_played > suspect.start_date;
+			}
+		}
+		return ratings;
 	},
 
 	async mmr(params) {
 		const server = await this.getServer(true);
 		if (server?.id !== Config.mainserver) {
 			// legacy error
-			return {errorip: "This ladder is not for your server. You should turn off Config.remoteladder."};
+			return { errorip: "This ladder is not for your server. You should turn off Config.remoteladder." };
 		}
 		if (!toID(params.format)) throw new ActionError("Specify a format.");
 		const ladder = new Ladder(params.format!);
@@ -362,7 +522,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (stderr) throw new ActionError(`Compilation failed:\n${stderr}`);
 		[, , stderr] = await bash('npx pm2 reload loginserver');
 		if (stderr) throw new ActionError(stderr);
-		return {updated: update, success: true};
+		return { updated: update, success: true };
 	},
 
 	async rebuildclient(params) {
@@ -376,17 +536,17 @@ export const actions: {[k: string]: QueryHandler} = {
 		}
 		let update;
 		try {
-			update = await bash('sudo -u apache git pull', Config.clientpath);
-			if (update[2]) throw new Error(update[1]);
+			update = await bash('sudo -u www-data git pull', Config.clientpath);
+			if (update[0]) throw new Error(update.join(','));
 			update = true;
 		} catch (e: any) {
-			throw new ActionError(e.message);
+			throw new ActionError(e.message as string);
 		}
-		const [, , stderr] = await bash(
-			`sudo -u apache node build${params.full ? ' full' : ''}`, Config.clientpath
+		update = await bash(
+			`sudo -u www-data node build${params.full ? ' full' : ''}`, Config.clientpath
 		);
-		if (stderr) throw new ActionError(`Compilation failed:\n${stderr}`);
-		return {updated: update, success: true};
+		if (update[0]) throw new ActionError(`Compilation failed:\n${update.join(',')}`);
+		return { updated: update, success: true };
 	},
 
 	async updatenamecolor(params) {
@@ -414,8 +574,8 @@ export const actions: {[k: string]: QueryHandler} = {
 		try {
 			const content = await fs.readFile(Config.colorpath, 'utf-8');
 			Object.assign(colors, JSON.parse(content));
-		} catch (e) {
-			throw new ActionError(`Could not read color file (${e})`);
+		} catch (err) {
+			throw new ActionError(`Could not read color file (${err as any})`);
 		}
 		let entry = '';
 		if (!('source' in params)) {
@@ -438,7 +598,35 @@ export const actions: {[k: string]: QueryHandler} = {
 			userid, actorid: by, date: time(), ip: this.getIp(), entry,
 		});
 
-		return {success: true};
+		return { success: true };
+	},
+
+	async updatecoil(params) {
+		await this.requireMainServer();
+
+		const formatid = toID(params.format);
+		if (!formatid) {
+			throw new ActionError('No format was specified.');
+		}
+		const source = parseFloat(`${params.coil_b!}`);
+		if ('coil_b' in params && (isNaN(source) || !source || source < 1)) {
+			throw new ActionError('No B value was specified.');
+		}
+		if (!Config.coilpath) {
+			throw new ActionError("Editing COIL is disabled");
+		}
+		if (!('coil_b' in params)) {
+			if (!coil[formatid]) {
+				throw new ActionError('That format does not have COIL set.');
+			} else {
+				delete coil[formatid];
+			}
+		} else {
+			coil[formatid] = source;
+		}
+		await fs.writeFile(Config.coilpath, JSON.stringify(coil));
+
+		return { success: true };
 	},
 
 	async setstanding(params) {
@@ -452,7 +640,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (!actor) {
 			throw new ActionError("The staff executing this action must be specified.");
 		}
-		if (!params.reason || !params.reason.length) {
+		if (!params.reason?.length) {
 			throw new ActionError("A reason must be specified.");
 		}
 		const standing = Number(params.standing);
@@ -475,7 +663,7 @@ export const actions: {[k: string]: QueryHandler} = {
 			ip: this.getIp(),
 			entry: `Standing changed to ${standing} (${Config.standings[standing]}): ${params.reason}`,
 		});
-		return {success: true};
+		return { success: true };
 	},
 
 	async ipstanding(params) {
@@ -489,7 +677,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (!actor) {
 			throw new ActionError("The staff executing this action must be specified.");
 		}
-		if (!params.reason || !params.reason.length) {
+		if (!params.reason?.length) {
 			throw new ActionError("A reason must be specified.");
 		}
 		const standing = Number(params.standing);
@@ -500,8 +688,8 @@ export const actions: {[k: string]: QueryHandler} = {
 			throw new ActionError("Invalid standing.");
 		}
 		const matches = await tables.users.selectAll(['userid'])`WHERE ip = ${ip}`;
-		for (const {userid} of matches) {
-			await tables.users.update(userid, {banstate: standing});
+		for (const { userid } of matches) {
+			await tables.users.update(userid, { banstate: standing });
 			await tables.usermodlog.insert({
 				actorid: actor,
 				userid,
@@ -510,7 +698,7 @@ export const actions: {[k: string]: QueryHandler} = {
 				entry: `Standing changed to ${standing} (${Config.standings[standing]}): ${params.reason}`,
 			});
 		}
-		return {success: matches.length};
+		return { success: matches.length };
 	},
 
 	async ipmatches(params) {
@@ -691,16 +879,16 @@ export const actions: {[k: string]: QueryHandler} = {
 		if (existing) {
 			if (Date.now() - existing.time > OAUTH_TOKEN_TIME) { // 2w
 				await tables.oauthTokens.delete(existing.id);
-				return {success: false};
+				return { success: false };
 			} else {
-				return {success: existing.id};
+				return { success: existing.id };
 			}
 		}
 		const id = crypto.randomBytes(16).toString('hex');
 		await tables.oauthTokens.insert({
 			id, owner: this.user.id, client: clientInfo.id, time: Date.now(),
 		});
-		return {success: id, expires: Date.now() + OAUTH_TOKEN_TIME};
+		return { success: id, expires: Date.now() + OAUTH_TOKEN_TIME };
 	},
 
 	async 'oauth/api/refreshtoken'(params) {
@@ -712,14 +900,14 @@ export const actions: {[k: string]: QueryHandler} = {
 		}
 		const tokenEntry = await tables.oauthTokens.get(token);
 		if (!tokenEntry) {
-			return {success: false};
+			return { success: false };
 		}
 		const id = crypto.randomBytes(16).toString('hex');
 		await tables.oauthTokens.insert({
 			id, owner: tokenEntry.owner, client: clientInfo.id, time: Date.now(),
 		});
 		await tables.oauthTokens.delete(tokenEntry.id);
-		return {success: id, expires: Date.now() + OAUTH_TOKEN_TIME};
+		return { success: id, expires: Date.now() + OAUTH_TOKEN_TIME };
 	},
 
 	// validate assertion & get token if it's valid
@@ -736,11 +924,11 @@ export const actions: {[k: string]: QueryHandler} = {
 		}
 		const tokenEntry = await tables.oauthTokens.get(token);
 		if (!tokenEntry || tokenEntry.id !== token) {
-			return {success: false};
+			return { success: false };
 		}
 		if ((Date.now() - tokenEntry.time) > OAUTH_TOKEN_TIME) { // 2w
 			await tables.oauthTokens.delete(tokenEntry.id);
-			return {success: false};
+			return { success: false };
 		}
 		this.user.login(tokenEntry.owner);
 		return this.session.getAssertion(
@@ -765,7 +953,7 @@ export const actions: {[k: string]: QueryHandler} = {
 		for (const token of tokens) {
 			const client = await tables.oauthClients.get(token.client);
 			if (!client) throw new Error("Tokens exist for nonexistent application");
-			applications.push({title: client.client_title, url: client.origin_url});
+			applications.push({ title: client.client_title, url: client.origin_url });
 		}
 		return {
 			username: this.user.id,
@@ -789,19 +977,19 @@ export const actions: {[k: string]: QueryHandler} = {
 			throw new ActionError("That application doesn't have access granted to your account.");
 		}
 		await tables.oauthTokens.deleteAll()`WHERE client = ${client.id} and owner = ${this.user.id}`;
-		return {success: true};
+		return { success: true };
 	},
 
 	async getteams(params) {
 		this.verifyCrossDomainRequest();
 		if (!this.user.loggedIn || this.user.id === 'guest') {
-			return {teams: []}; // don't wanna nag people with popups if they aren't logged in
+			return { loggedIn: false, teams: [] }; // don't wanna nag people with popups if they aren't logged in
 		}
 		let teams = [];
 		try {
-			teams = await tables.pgdb.query(
-				'SELECT teamid, team, format, title as name FROM teams WHERE ownerid = $1', [this.user.id]
-			) ?? [];
+			teams = await tables.teams.selectAll(
+				SQL`teamid, team, format, title as name, private`
+			)`WHERE ownerid = ${this.user.id}`;
 		} catch (e) {
 			Server.crashlog(e, 'a teams database query', params);
 			throw new ActionError('The server could not load your teams. Please try again later.');
@@ -816,31 +1004,503 @@ export const actions: {[k: string]: QueryHandler} = {
 			}
 			// feed it only the species names, that way we can render it in teambuilder
 			// and fetch the team later
-			t.team = mons.map(species => `${species}|||||||||||`).join(']');
+			t.team = mons.join(',');
 		}
-		return {teams};
+		return { loggedIn: this.user.id, teams };
 	},
 	async getteam(params) {
-		if (!this.user.loggedIn || this.user.id === 'guest') {
-			throw new ActionError("Access denied");
-		}
-		let {teamid} = params;
+		let { teamid, password, full, raw } = params;
 		teamid = toID(teamid);
+		password = toID(password);
 		if (!teamid) {
 			throw new ActionError("Invalid team ID");
 		}
 		try {
-			const data = await tables.pgdb.query(
-				`SELECT ownerid, team, private as privacy FROM teams WHERE teamid = $1`, [teamid]
-			);
-			if (!data || !data.length || data[0].ownerid !== this.user.id) {
-				return {team: null};
+			const data = await tables.teams.selectOne(
+				full ? SQL`team, private, ownerid, format, title, views` : SQL`ownerid, team, private`
+			)`WHERE teamid = ${teamid}`;
+			const owns = data?.ownerid === this.user.id;
+			if (!data || (owns ? false : (data.private && (password !== toID(data.private))))) {
+				return { team: null };
 			}
-			return data[0];
+			if ('views' in data && this.user.id !== data.ownerid) {
+				// we only increment views if it's a full load - since the teams client
+				// only uses getteam with full (which counts). otherwise it's just the
+				// builder loading it, which doesn't count
+				// or it's a rando api call, in which case i also do not care
+				// IMMEDIATE AFTER UPDATE: figure out why calling
+				// .update(teamid, {views: data.views + 1}) crashes
+				await tables.teams.query()`UPDATE teams SET views = views + 1 WHERE teamid = ${teamid}`;
+				data.views += 1;
+			}
+			if (raw) data.team = exportTeam(data.team) || data.team;
+			return data;
 		} catch (e) {
 			Server.crashlog(e, 'a teams database request', params);
 			throw new ActionError("Failed to fetch team. Please try again later.");
 		}
+	},
+	async editteam(params) {
+		if (!this.user.loggedIn || this.user.id === 'guest') {
+			throw new ActionError("Must be logged in to edit teams.");
+		}
+		const teamid = Number(params.teamid);
+		if (!teamid || teamid < 0 || isNaN(teamid)) {
+			throw new ActionError(`Invalid team ID: ${params.teamid || "none"}`);
+		}
+		const team = await tables.teams.get(teamid);
+		if (!team) {
+			throw new ActionError("Team not found.");
+		}
+		if (team.ownerid !== this.user.id) {
+			throw new ActionError(`You cannot edit that team, as it is not yours.`);
+		}
+		const edit: Record<string, string | number | null> = {};
+		if ('private' in params) {
+			const priv = Number(params.private);
+			if (![1, 0].includes(priv)) {
+				throw new ActionError(`Invalid privacy setting: ${params.private || "none"}`);
+			}
+			if (Boolean(priv) !== !!team.private) {
+				if (priv === 1) {
+					edit.private = Replays.generatePassword(20);
+				} else {
+					edit.private = null;
+				}
+			}
+		}
+		if ('format' in params) {
+			const f = toID(params.format);
+			if (f.length && toID(team.format) !== f) {
+				edit.format = f;
+			}
+		}
+		if (!Object.keys(edit).length) {
+			return { success: false, team };
+		} else {
+			await tables.teams.update(team.teamid, edit);
+		}
+		return { success: true, team: await tables.teams.get(team.teamid) };
+	},
+	async deleteteam(params) {
+		if (!this.user.loggedIn || this.user.id === 'guest') {
+			throw new ActionError("Must be logged in to edit teams.");
+		}
+		const teamid = Number(params.teamid);
+		if (!teamid || teamid < 0 || isNaN(teamid)) {
+			throw new ActionError(`Invalid team ID: ${params.teamid || "none"}`);
+		}
+		const team = await tables.teams.get(teamid);
+		if (!team) {
+			throw new ActionError("Team not found.");
+		}
+		if (team.ownerid !== this.user.id) {
+			throw new ActionError(`You cannot delete that team, as it is not yours.`);
+		}
+		await tables.teams.deleteAll()`WHERE teamid = ${teamid}`;
+		return {success: true};
+	},
+	async copyteam(params) {
+		let { teamid, password } = params;
+		if (!this.user.loggedIn) {
+			throw new ActionError("Must be logged in to copy teams.");
+		}
+		teamid = toID(teamid);
+		password = toID(password);
+		if (!teamid) {
+			throw new ActionError("Invalid team ID");
+		}
+		const data = await tables.teams.selectOne(
+			SQL`team, private, ownerid, format, title`
+		)`WHERE teamid = ${teamid}`;
+		const owns = data?.ownerid === this.user.id;
+		if (!data || (owns ? false : (data.private && (password !== toID(data.private))))) {
+			throw new ActionError("Access denied");
+		}
+		const newPw = Replays.generatePassword(20);
+		const result = await tables.teams.query()`INSERT INTO teams (${{
+			team: data.team,
+			private: newPw,
+			format: data.format,
+			title: `Copy of '${data.title}' by ${data.ownerid}`,
+			views: 0,
+			ownerid: this.user.id,
+			date: new Date().toISOString(),
+		}}) RETURNING *;`;
+		return { teamid: `${result[0].teamid}-${newPw}` };
+	},
+	async searchteams(params) {
+		let count = Number(params.count) || 20;
+		if (!this.user.loggedIn || this.user.id === 'guest') {
+			count = 20; // limit results just to be safe
+		}
+		const args = SQL``;
+		if (count > 200) {
+			throw new ActionError("Cannot search more than 200 teams at a time.");
+		}
+		let appended = false;
+		if (toID(params.format)) {
+			args.append(SQL` format = ${toID(params.format)}`);
+			appended = true;
+		}
+		if (toID(params.owner)) {
+			if (appended) args.append(SQL` AND `);
+			args.append(SQL`ownerid = ${toID(params.owner)}`);
+			appended = true;
+		}
+		const gen = Number(params.gen);
+		if (!isNaN(gen)) {
+			if (gen > 0 && gen < 10) throw new ActionError(`Invalid generation: ${gen}`);
+			if (appended) args.append(SQL` AND `);
+			args.append(SQL`format LIKE ${`gen${gen}%`}`);
+			appended = true;
+		}
+
+		if (appended) args.append(SQL` AND `);
+		args.append(SQL` private IS NULL`);
+
+		return {
+			result: await tables.teams.query(
+				SQL`SELECT * FROM teams WHERE ${args} ORDER BY date DESC LIMIT ${count}`
+			),
+			count,
+		};
+	},
+	'replays/recent'() {
+		this.allowCORS();
+		return Replays.recent();
+	},
+	async 'replays/search'(params) {
+		this.allowCORS();
+		if (params.sort && params.sort !== 'rating' && params.sort !== 'date') {
+			throw new ActionError('Sort must be "rating" or "date"');
+		}
+		const usernames = [
+			...(params.username || params.user || '').split(','),
+			...(params.username2 || params.user2 || '').split(','),
+		].map(toID).filter(Boolean);
+		if (usernames.length > 2) {
+			throw new ActionError(`Limit 2 usernames in a search`);
+		}
+		const page = Number(params.page || '1');
+		const before = Number(params.before) || undefined;
+		if (isNaN(page) || page !== Math.trunc(page) || page <= 0) {
+			throw new ActionError(`Invalid page number: ${params.page!}`);
+		}
+		if (params.page && before) {
+			throw new ActionError(`Cannot set both "page" and "before", please choose one method of pagination`);
+		}
+
+		if (params.contains) {
+			if (Object.keys(params).length > 1) {
+				throw new ActionError(`Contains can't be combined with other things.`);
+			}
+			return Replays.fullSearch(params.contains);
+		}
+
+		const search = {
+			usernames,
+			format: toID(params.format),
+			page,
+			before,
+			byRating: params.sort === 'rating',
+		};
+		return Replays.search(search);
+	},
+	async 'replays/search.json'(params) {
+		this.allowCORS();
+		if (params.sort && params.sort !== 'rating' && params.sort !== 'date') {
+			throw new ActionError('Sort must be "rating" or "date"');
+		}
+		const usernames = [
+			...(params.username || params.user || '').split(','),
+			...(params.username2 || params.user2 || '').split(','),
+		].map(toID).filter(Boolean);
+		if (usernames.length > 2) {
+			throw new ActionError(`Limit 2 usernames in a search`);
+		}
+		const page = Number(params.page || '1');
+		const before = Number(params.before) || undefined;
+		if (isNaN(page) || page !== Math.trunc(page) || page <= 0) {
+			throw new ActionError(`Invalid page number: ${params.page!}`);
+		}
+		if (params.page && before) {
+			throw new ActionError(`Cannot set both "page" and "before", please choose one method of pagination`);
+		}
+
+		if (params.contains) {
+			if (Object.keys(params).length > 2) {
+				throw new ActionError(`Contains can't be combined with other things.`);
+			}
+			this.response.setHeader('Content-Type', 'application/json');
+			try {
+				return JSON.stringify(await Replays.fullSearch(params.contains));
+			} catch {
+				throw new ActionError(`Could not search (timeout?)`);
+			}
+		}
+
+		const search = {
+			usernames,
+			format: toID(params.format),
+			page,
+			before,
+			byRating: params.sort === 'rating',
+		};
+		const results = await Replays.search(search);
+		this.response.setHeader('Content-Type', 'application/json');
+		return JSON.stringify(results);
+	},
+	async 'replays/searchprivate'(params) {
+		this.verifyCrossDomainRequest();
+
+		if (!this.user.loggedIn) throw new ActionError(`Access denied: You must be logged in.`);
+		if (params.sort && params.sort !== 'rating' && params.sort !== 'date') {
+			throw new ActionError('Sort must be "rating" or "date"');
+		}
+		const usernames = [
+			...(params.username || params.user || '').split(','),
+			...(params.username2 || params.user2 || '').split(','),
+		].map(toID).filter(Boolean);
+		if (usernames.length > 2) {
+			throw new ActionError(`Limit 2 usernames in a search`);
+		}
+		const page = Number(params.page || '1');
+		const before = Number(params.before) || null;
+		if (isNaN(page) || page !== Math.trunc(page) || page <= 0) {
+			throw new ActionError(`Invalid page number: ${params.page!}`);
+		}
+		if (params.page && before) {
+			throw new ActionError(`Cannot set both "page" and "before", please choose one method of pagination`);
+		}
+		if (!(this.user.isSysop() || usernames.includes(this.user.id))) {
+			throw new ActionError(`Access denied: You must be logged in as a username you're searching for.`);
+		}
+
+		const search = {
+			usernames,
+			format: toID(params.format),
+			page,
+			byRating: params.sort === 'rating',
+			isPrivate: true,
+		};
+		return Replays.search(search);
+	},
+	async 'replays/edit'(params) {
+		if (!this.user.isLeader()) throw new ActionError(`Access denied.`);
+		const id = toID(params.id);
+		if (!id) throw new ActionError(`No replay ID was provided.`);
+		const replay = await tables.replays.get(id);
+		if (!replay) throw new ActionError(`Replay ${id} not found.`);
+		let pw;
+		switch (Number(params.private)) {
+		case 3:
+			await tables.replays.update(id, {
+				password: null,
+				private: 3,
+			});
+			break;
+		case 2: // private [1], no pass
+			await tables.replays.update(id, {
+				private: 1,
+				password: null,
+			});
+			break;
+		case 1:
+			if (!replay.password) replay.password = Replays.generatePassword();
+			pw = replay.password;
+			await tables.replays.update(id, {
+				private: 1,
+				password: replay.password,
+			});
+			break;
+		default:
+			await tables.replays.update(id, {
+				password: null,
+				private: 0,
+			});
+			break;
+		}
+		return { password: pw };
+	},
+	async 'replays/batch'(params) {
+		if (!params.ids) {
+			throw new ActionError("Invalid batch replay request, must provide ids");
+		}
+		const ids = params.ids.split(',');
+		if (ids.length > 51) throw new ActionError(`Limit 51 IDs (you have ${ids.length}).`);
+		return Replays.getBatch(ids);
+	},
+	// sent by ps server
+	async 'smogon/validate'(params) {
+		await this.requireMainServer();
+		if (this.getIp() !== Config.restartip) {
+			throw new ActionError("Access denied.");
+		}
+		params.username = toID(params.username);
+		if (!params.username) {
+			throw new ActionError("Invalid PS username provided.");
+		}
+		return {
+			signed_username: await signAsync("RSA-SHA1", params.username, Config.privatekey),
+		};
+	},
+	async 'smogon/assoc-ips'(params) {
+		const signature = params.hash;
+		if (!params.data || !signature) {
+			throw new ActionError("Access denied");
+		}
+		const key = Config.smogonpublickey;
+		if (!key) throw new ActionError("Smogon key not set.");
+
+		const verified = verify({
+			data: params.data, signature, algo: 'RSA-SHA1', key,
+		});
+		if (!verified) throw new ActionError("Data not verified, access denied");
+		// smogon prefers not having to use this, and since we've verified
+		// it IS from smogon, we can skip this
+		this.useDispatchPrefix = false;
+
+		const userid = toID(params.data);
+		if (!userid) throw new ActionError("Invalid userid provided.");
+		const userData = await tables.users.get(userid);
+		const times = new TimeSorter();
+		if (userData) {
+			times.add(userData.ip, userData.registertime);
+			// probably more recent, if they overlap
+			if (userData.loginip) {
+				times.add(userData.loginip, userData.logintime);
+			}
+		}
+		const sessions = await tables.sessions.selectAll()`WHERE userid = ${userid}`;
+		for (const s of sessions) {
+			times.add(s.ip, s.time);
+		}
+		if (Config.getuserips) {
+			times.merge(await Config.getuserips(userid));
+		}
+
+		return { ips: times.toJSON() };
+	},
+
+	async 'suspects/add'(params) {
+		await this.requireMainServer();
+		if (this.getIp() !== Config.restartip) {
+			throw new ActionError("Access denied.");
+		}
+		const id = toID(params.format);
+		if (!id) throw new ActionError("No format ID specified.");
+		if (!params.reqs) {
+			throw new ActionError("Reqs not specified.");
+		}
+		let reqs;
+		try {
+			reqs = JSON.parse(params.reqs);
+		} catch {
+			throw new ActionError("Invalid reqs sent.");
+		}
+		if (!(reqs.gxe || reqs.elo || reqs.coil) || Object.values(reqs).some(x => typeof x !== 'number')) {
+			throw new ActionError("Invalid reqs sent.");
+		}
+		const start = time();
+		let out;
+		try {
+			const res = await smogonFetch("tools/api/suspect-create", "POST", {
+				date: `${start}`,
+				reqs,
+				format: id,
+			});
+			if (!res) throw new Error('failed');
+			out = await res.json();
+		} catch (e: any) {
+			throw new ActionError("Failed to update Smogon suspect test record: " + e.message);
+		}
+		const existing = await tables.suspects.get(id);
+		if (existing) {
+			await tables.suspects.update(id, {
+				elo: reqs.elo || null,
+				gxe: reqs.gxe || null,
+				coil: reqs.coil || null,
+			});
+		} else {
+			await tables.suspects.insert({
+				formatid: id,
+				start_date: start,
+				elo: reqs.elo || null,
+				gxe: reqs.gxe || null,
+				coil: reqs.coil || null,
+			});
+		}
+		return { success: true, url: (out as any).url };
+	},
+	async 'suspects/edit'(params) {
+		await this.requireMainServer();
+		if (this.getIp() !== Config.restartip) {
+			throw new ActionError("Access denied.");
+		}
+		const id = toID(params.format);
+		if (!id) throw new ActionError("No format ID specified.");
+		const suspect = await tables.suspects.get(id);
+		if (!suspect) throw new ActionError("There is no ongoing suspect for " + id);
+		let reqs;
+		try {
+			reqs = JSON.parse(params.reqs || "");
+			for (const k in reqs) {
+				if (!['coil', 'elo', 'gxe'].includes(k)) {
+					throw new Error("Invalid req type: " + k);
+				}
+				if (reqs[k]) {
+					reqs[k] = Number(reqs[k]);
+					if (isNaN(reqs[k])) {
+						throw new Error("Req values must be numbers.");
+					}
+				} else {
+					reqs[k] = null;
+				}
+			}
+		} catch (e: any) {
+			throw new ActionError("Invalid reqs sent: " + e.message);
+		}
+		await tables.suspects.update(id, reqs);
+		await smogonFetch("tools/api/suspect-edit", "POST", {
+			date: suspect.start_date,
+			format: id,
+			reqs,
+		});
+		return { success: true };
+	},
+	async 'suspects/end'(params) {
+		await this.requireMainServer();
+		if (this.getIp() !== Config.restartip) {
+			throw new ActionError("Access denied.");
+		}
+		const id = toID(params.format);
+		if (!id) throw new ActionError("No format ID specified.");
+		const suspect = await tables.suspects.get(id);
+		if (!suspect) throw new ActionError("There is no ongoing suspect for " + id);
+		await tables.suspects.delete(id);
+		await smogonFetch("tools/api/suspect-end", "POST", {
+			formatid: id,
+			time: suspect.start_date,
+		});
+		return { success: true };
+	},
+	async 'suspects/verify'(params) {
+		await this.requireMainServer();
+		if (this.getIp() !== Config.restartip) {
+			throw new ActionError("Access denied.");
+		}
+		const id = toID(params.format || params.formatid);
+		if (!id) throw new ActionError("No format ID specified.");
+		const suspect = await tables.suspects.get(id);
+		if (!suspect) throw new ActionError("There is no ongoing suspect for " + id);
+		const userid = toID(params.userid);
+		if (!userid || userid.length > 18) throw new ActionError("Invalid userid Pprovided.");
+		const rating = await new Ladder(id).getRating(userid);
+		if (!rating) throw new ActionError("That user has no ratings in the given ladder.");
+		return {
+			result: checkSuspectVerified(rating, suspect),
+		};
 	},
 };
 

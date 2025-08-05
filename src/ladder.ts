@@ -5,29 +5,62 @@
  * @author Zarel, mia-pi-git
  */
 
-import {toID, time} from './utils';
-import {ladder} from './tables';
+import { toID, time } from './utils';
+import { ladder } from './tables';
+
+/** length of a rating period in days (used for Glicko and Elo decay).
+ *  Glickman recommends 5-10 games per rating period */
+const RP_LENGTH_DAYS = 1;
+/** length of a rating period in seconds */
+const RP_LENGTH = 24 * 60 * 60 * RP_LENGTH_DAYS;
+/** time in UTC rating periods roll over, in seconds (9am UTC, or 4am Chicago Time) */
+const RP_OFFSET = 9 * 60 * 60;
+
+const GLICKO_RD_MAX = 130.0;
+const GLICKO_RD_MIN = 25.0;
+
+// this solves for going from min RD to max RD in 365 days
+const GLICKO_C = Math.sqrt((GLICKO_RD_MAX ** 2 - GLICKO_RD_MIN ** 2) / (365.0 / RP_LENGTH_DAYS));
 
 export interface LadderEntry {
 	entryid: number;
 	formatid: string;
 	userid: string;
 	username: string;
+	/** wins */
 	w: number;
+	/** losses */
 	l: number;
+	/** ties */
 	t: number;
+	/** estimate of your win chance against a random ladder player */
 	gxe: number;
+	/** Glicko-1 rating */
 	r: number;
+	/** Glicko-1 rating deviation */
 	rd: number;
+	/** @deprecated when we used Glicko-2, this was volatility (currently unused) */
 	sigma: number;
+	/** last updated (to track rating decay) */
 	rptime: number;
+	/** estimated Glicko rating for next rating period */
 	rpr: number;
+	/** estimated Glicko rating deviation for next rating period */
 	rprd: number;
+	/** @deprecated when we used Glicko-2, this was volatility next period (currently unused) */
 	rpsigma: number;
+	/** games played since last rating period, for Glicko-1 updates */
 	rpdata: string;
+	/** Elo. ours starts/floors at 1000 with a scaling K factor */
 	elo: number;
+	/** @deprecated unused, intended as futureproofing (look, we used MySQL...) */
 	col1: number;
+	/** Elo before last rating period update */
 	oldelo: number;
+	/** when did this user first play this ladder? */
+	first_played: number;
+	/** when did this user most recently play this ladder? */
+	last_played: number;
 }
 
 interface MatchElement {
@@ -38,20 +71,16 @@ interface MatchElement {
 
 export class Ladder {
 	formatid: string;
-	rplen: number;
-	rpoffset: number;
 	constructor(format: string) {
 		this.formatid = toID(format);
-		this.rplen = 24 * 60 * 60;
-		this.rpoffset = 9 * 60 * 60;
 	}
 	getRP() {
-		const rpnum = Math.trunc((time() - this.rpoffset) / this.rplen) + 1;
-		return rpnum * this.rplen + this.rpoffset;
+		const rpnum = Math.trunc((time() - RP_OFFSET) / RP_LENGTH) + 1;
+		return rpnum * RP_LENGTH + RP_OFFSET;
 	}
 	nextRP(rp: number) {
-		const rpnum = Math.trunc(rp / this.rplen);
-		return (rpnum + 1) * this.rplen + this.rpoffset;
+		const rpnum = Math.trunc(rp / RP_LENGTH);
+		return (rpnum + 1) * RP_LENGTH + RP_OFFSET;
 	}
 	clearRating(name: string) {
 		return ladder.updateOne({
@@ -73,9 +102,11 @@ export class Ladder {
 		if (!create) return null;
 
 		const rp = this.getRP();
+		const now = time();
 		const res = await ladder.insert({
 			formatid: this.formatid, username: user, userid,
 			rptime: rp, rpdata: '', col1: 0,
+			first_played: now, last_played: now,
 		});
 		return {
 			entryid: res.insertId,
@@ -90,6 +121,8 @@ export class Ladder {
 			elo: 1000,
 			col1: 0,
 			oldelo: 0,
+			first_played: now,
+			last_played: now,
 		};
 	}
 	static async getAllRatings(user: string) {
@@ -122,11 +155,29 @@ export class Ladder {
 				// an indexed query for additional rows and filter them down further. This is obviously *not* guaranteed
 				// to return exactly $limit results, but should be 'good enough' in practice.
 				const overfetch = limit * 2;
-				res = await ladder.query()`SELECT * FROM
-					(SELECT * FROM ntbb_ladder WHERE formatid = ${this.formatid} ORDER BY elo DESC LIMIT ${limit})
-					AS unusedalias WHERE userid LIKE ${prefix} LIMIT ${overfetch}`;
+				res = await ladder.query()`
+					WITH max_elo AS (
+						SELECT MAX(elo) AS max_elo FROM ntbb_ladder WHERE formatid = ${this.formatid}
+					),
+					rpr_filtered AS (
+							SELECT * FROM ntbb_ladder WHERE
+								((SELECT max_elo FROM max_elo) <= 1500 OR rprd <= 100)
+								AND formatid = ${this.formatid}
+					)
+					SELECT * FROM
+						(SELECT * FROM rpr_filtered WHERE formatid = ${this.formatid} ORDER BY elo DESC LIMIT ${limit})
+						AS unusedalias WHERE userid LIKE ${prefix} LIMIT ${overfetch}`;
 			} else {
-				res = await ladder.selectAll()`WHERE formatid = ${this.formatid} ORDER BY elo DESC`;
+				res = await ladder.query()`
+					WITH max_elo AS (
+						SELECT MAX(elo) AS max_elo FROM ntbb_ladder WHERE formatid = ${this.formatid}
+					),
+					rpr_filtered AS (
+							SELECT * FROM ntbb_ladder WHERE
+								((SELECT max_elo FROM max_elo) <= 1500 OR rprd <= 100)
+								AND formatid = ${this.formatid}
+					)
+					SELECT * FROM rpr_filtered ORDER BY elo DESC LIMIT ${limit}`;
 			}
 
 			for (const row of res) {
@@ -154,7 +205,7 @@ export class Ladder {
 			col1, entryid,
 		} = rating;
 		return !!(await ladder.update(entryid, {
-			elo, w, l, t, r, rd, sigma, rptime, rpr, rprd, rpsigma, rpdata, gxe, col1,
+			elo, w, l, t, r, rd, sigma, rptime, rpr, rprd, rpsigma, rpdata, gxe, col1, last_played: time(),
 		}));
 	}
 
@@ -245,7 +296,7 @@ export class Ladder {
 
 		const exp = ((1500 - glicko.rating) / 400 / Math.sqrt(1 + 0.0000100724 * (glicko.rd * glicko.rd + 130 * 130)));
 		rating.gxe = Number((
-			100 / (1 + Math.pow(10, exp))
+			100 / (1 + (10 ** exp))
 		).toFixed(1));
 
 		// if ($newM) {
@@ -262,7 +313,7 @@ export class Ladder {
 		// 	}
 		// }
 		if (offset) {
-			rating.rpdata += '##' + offset;
+			rating.rpdata += `##${offset}`;
 		}
 
 		if (newM) {
@@ -278,7 +329,7 @@ export class Ladder {
 			} else if (elo > 1300) {
 				K = 40;
 			}
-			const E = 1 / (1 + Math.pow(10, (newMelo - elo) / 400));
+			const E = 1 / (1 + (10 ** ((newMelo - elo) / 400)));
 			elo += K * (newM.score - E);
 
 			if (elo < 1000) elo = 1000;
@@ -318,9 +369,6 @@ export class GlickoPlayer {
 	rd: number;
 
 	readonly piSquared = Math.PI ** 2;
-	readonly RDmax = 130.0;
-	readonly RDmin = 25.0;
-	c: number;
 	readonly q = 0.00575646273;
 	m: MatchElement[] = [];
 
@@ -328,7 +376,6 @@ export class GlickoPlayer {
 		// Step 1
 		this.rating = rating;
 		this.rd = rd;
-		this.c = Math.sqrt((this.RDmax * this.RDmax - this.RDmin * this.RDmin) / 365.0);
 	}
 
 	addWin(otherPlayer: GlickoPlayer) {
@@ -363,9 +410,12 @@ export class GlickoPlayer {
 
 		// Follow along the steps using: http://www.glicko.net/glicko/glicko.pdf
 
+		let RD = Math.sqrt((this.rd ** 2) + (GLICKO_C ** 2));
+		if (RD > GLICKO_RD_MAX) {
+			RD = GLICKO_RD_MAX;
+		}
 		if (m.length === 0) {
-			const RD = Math.sqrt((this.rd * this.rd) + (this.c * this.c));
-			return {R: this.rating, RD};
+			return { R: this.rating, RD };
 		}
 
 		let A = 0.0;
@@ -381,25 +431,25 @@ export class GlickoPlayer {
 
 		d2 = 1.0 / this.q / this.q / d2;
 
-		let RD = 1.0 / Math.sqrt(1.0 / (this.rd * this.rd) + 1.0 / d2);
-		const R = this.rating + this.q * (RD * RD) * A;
+		RD = 1.0 / Math.sqrt(1.0 / (RD * RD) + 1.0 / d2);
+		const R = this.rating + this.q * (RD ** 2) * A;
 
-		if (RD > this.RDmax) {
-			RD = this.RDmax;
+		if (RD > GLICKO_RD_MAX) {
+			RD = GLICKO_RD_MAX;
 		}
 
-		if (RD < this.RDmin) {
-			RD = this.RDmin;
+		if (RD < GLICKO_RD_MIN) {
+			RD = GLICKO_RD_MIN;
 		}
 
-		return {R, RD};
+		return { R, RD };
 	}
 
 	g(RD: number) {
-		return 1.0 / Math.sqrt(1.0 + 3.0 * this.q * this.q * RD * RD / this.piSquared);
+		return 1.0 / Math.sqrt(1.0 + 3.0 * (this.q ** 2) * (RD ** 2) / this.piSquared);
 	}
 
 	E(R: number, rJ: number, rdJ: number) {
-		return 1.0 / (1.0 + Math.pow(10.0, -this.g(rdJ) * (R - rJ) / 400.0));
+		return 1.0 / (1.0 + (10.0 ** (-this.g(rdJ) * (R - rJ) / 400.0)));
 	}
 }
