@@ -63,7 +63,7 @@ function loadData(path: string | null) {
 
 const verify = (
 	{ data, signature, algo, key }: {
-		data: string, signature: string, algo: string, key: string
+		data: string, signature: string, algo: string, key: string,
 	}
 ) => {
 	const verifier = crypto.createVerify(algo);
@@ -74,7 +74,7 @@ const verify = (
 	} catch {}
 
 	return success;
-}
+};
 
 export let coil: Record<string, number> = loadData(Config.coilpath);
 
@@ -755,7 +755,7 @@ export const actions: { [k: string]: QueryHandler } = {
 			success: id,
 			expires: Date.now() + OAUTH_TOKEN_TIME,
 			user: this.user.id,
-		 };
+		};
 	},
 
 	async 'oauth/api/refreshtoken'(params) {
@@ -888,11 +888,6 @@ export const actions: { [k: string]: QueryHandler } = {
 			)`WHERE teamid = ${teamid}`;
 			const owns = data?.ownerid === this.user.id;
 			if (!data || (owns ? false : (data.private && (password !== toID(data.private))))) {
-				if (!full) {
-					void fs.appendFile(`./config/teams.log`, JSON.stringify({
-						teamid, user: this.user.id, date: Date.now(),
-					}));
-				}
 				return { team: null };
 			}
 			if ('views' in data && this.user.id !== data.ownerid) {
@@ -970,7 +965,7 @@ export const actions: { [k: string]: QueryHandler } = {
 			throw new ActionError(`You cannot delete that team, as it is not yours.`);
 		}
 		await tables.teams.deleteAll()`WHERE teamid = ${teamid}`;
-		return {success: true};
+		return { success: true };
 	},
 	async copyteam(params) {
 		let { teamid, password } = params;
