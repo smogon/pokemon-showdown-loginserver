@@ -6,7 +6,8 @@
  */
 
 import { toID, time } from './utils';
-import { ladder } from './tables';
+import { ladder, suspects } from './tables';
+import { ActionError } from './server';
 
 /** length of a rating period in days (used for Glicko and Elo decay).
  *  Glickman recommends 5-10 games per rating period */
@@ -16,10 +17,9 @@ const RP_LENGTH = 24 * 60 * 60 * RP_LENGTH_DAYS;
 /** time in UTC rating periods roll over, in seconds (9am UTC, or 4am Chicago Time) */
 const RP_OFFSET = 9 * 60 * 60;
 
-const GLICKO_RD_MAX = 130.0;
+export const GLICKO_RD_MAX = 130.0;
 const GLICKO_RD_MIN = 25.0;
 
-// this solves for going from min RD to max RD in 365 days
 const GLICKO_C = Math.sqrt((GLICKO_RD_MAX ** 2 - GLICKO_RD_MIN ** 2) / (365.0 / RP_LENGTH_DAYS));
 
 export interface LadderEntry {
@@ -90,6 +90,36 @@ export class Ladder {
 	clearWL(name: string) {
 		return ladder.updateOne({
 			w: 0, l: 0, t: 0,
+		})`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
+	}
+	async resetRD(name: string) {
+		const suspect = await suspects.get(this.formatid);
+		if (!suspect) {
+			throw new ActionError('This command is only available during a suspect test.');
+		}
+		const user = await ladder.selectOne()`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
+		if (!user?.first_played || user.first_played >= suspect.start_date) {
+			// don't allow accounts without activity before the suspect to reset RD
+			// there's no reason they should need to, it saves on space,
+			// and otherwise this system would have broken ongoing suspect tests when it was introduced
+			throw new ActionError('This account is already eligible to participate in this suspect test.');
+		}
+		if (user.rd >= GlickoPlayer.RDmax) {
+			// don't allow accounts to spam this command
+			throw new ActionError(
+				'This account is already eligible to participate in this suspect test, ' +
+				'or it has already used this command today.'
+			);
+		}
+		if (JSON.parse(user.rpdata.split('##')[0]).length) {
+			// user has pending match data; resetting RD now would mess up how their rating is calculated
+			throw new ActionError('You have played rated games in this format today. Please try again tomorrow.');
+			// alternatively, we could force-update their glicko rating now instead,
+			// because the previous check is enough to throttle this command to once per day
+		}
+
+		return ladder.updateOne({
+			rd: GlickoPlayer.RDmax, rprd: GlickoPlayer.RDmax, // r: user.rpr, rpdata: JSON.stringify([]),
 		})`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
 	}
 	getRating(user: string): Promise<LadderEntry | null>;
@@ -273,13 +303,7 @@ export class Ladder {
 		}
 		if (newM) {
 			glicko.m.push(newM);
-			if (newM.score > 0.99) {
-				rating.w++;
-			} else if (newM.score < 0.01) {
-				rating.l++;
-			} else {
-				rating.t++;
-			}
+			rating[Ladder.scoreToKey(newM.score)]++;
 			rating.col1++;
 		}
 
@@ -339,12 +363,11 @@ export class Ladder {
 
 		return true;
 	}
-	async addMatch(player1: string, player2: string, p1score: number) {
+	async addMatch(player1: string, player2: string, p1score: number, p2score?: number) {
 		const p1 = await this.getRating(player1, true);
 		const p2 = await this.getRating(player2, true);
 
-		let p2score = 1 - p1score;
-		if (p1score < 0) [p1score, p2score] = [0, 0];
+		if (!p2score) [p1score, p2score] = Ladder.expandP1Score(p1score);
 
 		const p1M = new GlickoPlayer(p2.r, p2.rd).matchElement(p1score)[0];
 		const p2M = new GlickoPlayer(p1.r, p1.rd).matchElement(p2score)[0];
@@ -362,6 +385,20 @@ export class Ladder {
 		if (userid.length > 18 || !userid) return null;
 		return userid;
 	}
+	static expandP1Score(p1score: number): [number, number] {
+		let p2score = 1 - p1score;
+		if (p1score < 0) [p1score, p2score] = [0, 0];
+		return [p1score, p2score];
+	}
+	static scoreToKey(score: number) {
+		if (score > 0.99) {
+			return 'w';
+		} else if (score < 0.01) {
+			return 'l';
+		} else {
+			return 't';
+		}
+	}
 }
 
 export class GlickoPlayer {
@@ -369,6 +406,9 @@ export class GlickoPlayer {
 	rd: number;
 
 	readonly piSquared = Math.PI ** 2;
+	static RDmax = 130.0;
+	static RDmin = 25.0;
+	c: number;
 	readonly q = 0.00575646273;
 	m: MatchElement[] = [];
 
@@ -376,6 +416,7 @@ export class GlickoPlayer {
 		// Step 1
 		this.rating = rating;
 		this.rd = rd;
+		this.c = Math.sqrt((GlickoPlayer.RDmax * GlickoPlayer.RDmax - GlickoPlayer.RDmin * GlickoPlayer.RDmin) / 365.0);
 	}
 
 	addWin(otherPlayer: GlickoPlayer) {

@@ -8,6 +8,7 @@ import { Ladder } from '../ladder';
 import { toID } from '../utils';
 import * as utils from './test-utils';
 import * as tables from '../tables';
+import {ActionError} from '../server';
 
 const token = '42354y6dhgfdsretr';
 describe('Loginserver actions', () => {
@@ -142,6 +143,82 @@ describe('Loginserver actions', () => {
 			});
 
 			assert.strictEqual(p1r.elo, result, `Expected elo ${p1r.elo}, got ${result}`);
+		});
+
+		it('Should track suspect test participation', async () => {
+			const ladder = new Ladder('gen5randombattle');
+			const p1 = 'shera';
+			const p2 = 'catra';
+			for (const player of [p1, p2]) {
+				await tables.ladder.deleteAll()`WHERE userid = ${toID(player)} AND formatid = ${ladder.formatid}`;
+				await tables.suspectParticipation.deleteAll()`WHERE userid = ${toID(player)} AND formatid = ${ladder.formatid}`;
+			}
+			await tables.suspects.delete(ladder.formatid);
+			let suspectStarted = await utils.testDispatcher({
+				act: 'suspects/add',
+				format: ladder.formatid,
+				reqs: JSON.stringify({
+					gxe: 1800,
+				}),
+				serverid: 'showdown',
+				servertoken: token,
+			});
+			assert(suspectStarted.result.success);
+
+			await ladder.addMatch(p1, p2, 1);
+
+			assert(
+				!(await tables.suspectParticipation.selectOne()`WHERE userid = ${p1} AND formatid = ${ladder.formatid}`),
+				'Suspect participation data should not be tracked separately for accounts new to the format',
+			);
+			assert.throws(async () => await ladder.resetRD(p1), new ActionError('This account is already eligible to participate in this suspect test.'));
+
+			await utils.testDispatcher({
+				act: 'suspects/end',
+				format: ladder.formatid,
+				serverid: 'showdown',
+				servertoken: token,
+			});
+			suspectStarted = await utils.testDispatcher({
+				act: 'suspects/add',
+				format: ladder.formatid,
+				reqs: JSON.stringify({
+					gxe: 1800,
+				}),
+				serverid: 'showdown',
+				servertoken: token,
+			});
+			assert(suspectStarted.result.success);
+			const suspect = await tables.suspects.get(ladder.formatid);
+
+			await ladder.addMatch(p1, p2, 1);
+
+			assert(
+				!(await tables.suspectParticipation.selectOne()`WHERE userid = ${p1} AND formatid = ${ladder.formatid}`),
+				'Suspect participation data should not be tracked for accounts not new to the format that have not had their RD reset',
+			);
+			await ladder.resetRD(p1);
+
+			await ladder.addMatch(p1, p2, 1);
+
+			const participation = await tables.suspectParticipation.selectOne()`WHERE userid = ${p1} AND formatid = ${ladder.formatid}`;
+			assert(
+				!!participation,
+				'Suspect participation data should be tracked for accounts not new to the format that have had their RD reset',
+			);
+			assert.deepStrictEqual(
+				participation,
+				{
+					entryid: participation!.entryid,
+					formatid: ladder.formatid,
+					start_date: suspect!.start_date,
+					userid: p1,
+					w: 1,
+					l: 0,
+					t: 0,
+					qualified: false,
+				}
+			);
 		});
 	});
 });
