@@ -544,14 +544,20 @@ export const actions: { [k: string]: QueryHandler } = {
 		const user = Ladder.isValidPlayer(params.user);
 		if (!user) throw new ActionError("Invalid username.");
 
-		const ratings = await Ladder.getAllRatings(user) as (LadderEntry & { suspect: boolean | SuspectParticipation })[];
+		const ratings = await Ladder.getAllRatings(user) as (LadderEntry & { suspect?: boolean })[];
 		for (const rating of ratings) {
 			const suspect = await tables.suspects.get(rating.formatid);
 			if (suspect) {
 				rating.suspect = !!rating.first_played && rating.first_played > suspect.start_date;
 				if (!rating.suspect) {
-					rating.suspect = await tables.suspectParticipation.selectOne()`WHERE formatid = ${suspect.formatid}
-						AND start_date = ${suspect.start_date} AND userid = ${rating.userid}` || false;
+					const participation = await tables.suspectParticipation.selectOne()`WHERE 
+						formatid = ${suspect.formatid} AND
+						start_date = ${suspect.start_date} AND
+						userid = ${rating.userid}`;
+					if (participation) {
+						rating.suspect = true;
+						[rating.w, rating.l, rating.t] = [participation.w, participation.l, participation.t];
+					}
 				}
 			}
 		}
