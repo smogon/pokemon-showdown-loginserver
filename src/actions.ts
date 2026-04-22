@@ -11,7 +11,7 @@ import * as url from 'url';
 import { Config } from './config-loader';
 import { GLICKO_RD_MAX, Ladder, type LadderEntry } from './ladder';
 import { Replays } from './replays';
-import { ActionError, type QueryHandler, Server, DISPATCH_PREFIX} from './server';
+import { ActionError, type QueryHandler, Server, DISPATCH_PREFIX } from './server';
 import { Session } from './user';
 import {
 	toID, updateserver, bash, time, escapeHTML, signAsync, TimeSorter,
@@ -125,7 +125,7 @@ export async function checkSuspectVerified(
 	// a player with maxed rprd has definitely played no games during the test
 	if (rating.rprd >= GLICKO_RD_MAX) return false;
 
-	let wltData: {w: number, l: number, t: number} | null;
+	let wltData: { w: number, l: number, t: number } | null;
 	if ((rating?.first_played && rating.first_played > suspect.start_date)) {
 		// did not play games before the test began
 		wltData = rating;
@@ -186,7 +186,7 @@ export async function checkSuspectVerified(
 				qualified: true,
 			});
 		} else {
-			void tables.suspectParticipation.update((wltData as SuspectParticipation).entryid, {qualified: true});
+			void tables.suspectParticipation.update((wltData as SuspectParticipation).entryid, { qualified: true });
 		}
 		return true;
 	}
@@ -204,7 +204,7 @@ function exportTeam(team: string) {
 export async function trackSuspectParticipation(
 	rating: LadderEntry | null,
 	score: number,
-	suspect: Suspect,
+	suspect: Suspect
 ) {
 	if (!rating) return;
 	let particpation = await tables.suspectParticipation.selectOne()`WHERE formatid = ${suspect.formatid}

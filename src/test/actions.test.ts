@@ -8,7 +8,7 @@ import { Ladder } from '../ladder';
 import { toID } from '../utils';
 import * as utils from './test-utils';
 import * as tables from '../tables';
-import {ActionError} from '../server';
+import { ActionError } from '../server';
 
 const token = '42354y6dhgfdsretr';
 describe('Loginserver actions', () => {
@@ -169,9 +169,12 @@ describe('Loginserver actions', () => {
 
 			assert(
 				!(await tables.suspectParticipation.selectOne()`WHERE userid = ${p1} AND formatid = ${ladder.formatid}`),
-				'Suspect participation data should not be tracked separately for accounts new to the format',
+				'Suspect participation data should not be tracked separately for accounts new to the format'
 			);
-			assert.throws(async () => await ladder.resetRD(p1), new ActionError('This account is already eligible to participate in this suspect test.'));
+			assert.throws(
+				async () => await ladder.resetRD(p1),
+				new ActionError('This account is already eligible to participate in this suspect test.')
+			);
 
 			await utils.testDispatcher({
 				act: 'suspects/end',
@@ -195,21 +198,22 @@ describe('Loginserver actions', () => {
 
 			assert(
 				!(await tables.suspectParticipation.selectOne()`WHERE userid = ${p1} AND formatid = ${ladder.formatid}`),
-				'Suspect participation data should not be tracked for accounts not new to the format that have not had their RD reset',
+				'Suspect participation data should not be tracked for accounts not new to the format that have not had their RD reset'
 			);
 			await ladder.resetRD(p1);
 
 			await ladder.addMatch(p1, p2, 1);
 
-			const participation = await tables.suspectParticipation.selectOne()`WHERE userid = ${p1} AND formatid = ${ladder.formatid}`;
+			const participation = await tables.suspectParticipation.selectOne()`WHERE userid = ${p1} AND
+				formatid = ${ladder.formatid}`;
 			assert(
 				!!participation,
-				'Suspect participation data should be tracked for accounts not new to the format that have had their RD reset',
+				'Suspect participation data should be tracked for accounts not new to the format that have had their RD reset'
 			);
 			assert.deepStrictEqual(
 				participation,
 				{
-					entryid: participation!.entryid,
+					entryid: participation.entryid,
 					formatid: ladder.formatid,
 					start_date: suspect!.start_date,
 					userid: p1,
