@@ -8,5 +8,6 @@ CREATE TABLE `ntbb_suspect_participation` (
 	w int,
 	l int,
 	t int,
-	qualified bool
+	qualified bool,
+	UNIQUE KEY `formatstartuser` (`formatid`,`start_date`,`userid`)
 ) AUTO_INCREMENT=1;

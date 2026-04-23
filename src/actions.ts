@@ -36,7 +36,7 @@ export interface SuspectParticipation {
 	w: number;
 	l: number;
 	t: number;
-	qualified: boolean;
+	qualified: 0 | 1;
 }
 
 const OAUTH_TOKEN_TIME = 2 * 7 * 24 * 60 * 60 * 1000;
@@ -183,10 +183,10 @@ export async function checkSuspectVerified(
 				w: rating.w,
 				l: rating.l,
 				t: rating.t,
-				qualified: true,
+				qualified: 1,
 			});
 		} else {
-			void tables.suspectParticipation.update((wltData as SuspectParticipation).entryid, { qualified: true });
+			void tables.suspectParticipation.update((wltData as SuspectParticipation).entryid, { qualified: 1 });
 		}
 		return true;
 	}
@@ -219,14 +219,12 @@ export async function trackSuspectParticipation(
 			w: 0,
 			l: 0,
 			t: 0,
-			qualified: false,
+			qualified: 0,
 		} as SuspectParticipation;
 	}
 	if (particpation && !particpation.qualified) {
 		particpation[Ladder.scoreToKey(score)]++;
-		await tables.suspectParticipation.upsert(particpation, particpation,
-			SQL`WHERE formatid = ${suspect.formatid}
-			AND start_date = ${suspect.start_date} AND userid = ${rating.userid}`);
+		await tables.suspectParticipation.upsert(particpation);
 	}
 }
 
@@ -502,11 +500,11 @@ export const actions: { [k: string]: QueryHandler } = {
 	},
 
 	async ladderupdate(params) {
-		const server = await this.getServer(true);
-		if (server?.id !== Config.mainserver) {
-			// legacy error
-			return { errorip: this.getIp() };
-		}
+		// const server = await this.getServer(true);
+		// if (server?.id !== Config.mainserver) {
+		// 	// legacy error
+		// 	return { errorip: this.getIp() };
+		// }
 
 		const formatid = toID(params.format);
 		if (!formatid) throw new ActionError("Invalid format.");
@@ -1339,11 +1337,20 @@ export const actions: { [k: string]: QueryHandler } = {
 		return { ips: times.toJSON() };
 	},
 
-	async 'suspects/add'(params) {
+	async 'suspects/join'(params) {
 		await this.requireMainServer();
 		if (this.getIp() !== Config.restartip) {
 			throw new ActionError("Access denied.");
 		}
+		const id = toID(params.format);
+		if (!id) throw new ActionError("No format ID specified.");
+		if (!params.user) {
+			throw new ActionError("User not specified.");
+		}
+		await new Ladder(id).resetRD(params.user);
+	},
+
+	async 'suspects/add'(params) {
 		const id = toID(params.format);
 		if (!id) throw new ActionError("No format ID specified.");
 		if (!params.reqs) {

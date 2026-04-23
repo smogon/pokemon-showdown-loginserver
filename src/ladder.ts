@@ -6,7 +6,7 @@
  */
 
 import { toID, time } from './utils';
-import { ladder, suspects } from './tables';
+import { ladder, suspectParticipation, suspects } from './tables';
 import { ActionError } from './server';
 
 /** length of a rating period in days (used for Glicko and Elo decay).
@@ -95,7 +95,7 @@ export class Ladder {
 	async resetRD(name: string) {
 		const suspect = await suspects.get(this.formatid);
 		if (!suspect) {
-			throw new ActionError('This command is only available during a suspect test.');
+			throw new ActionError(`There is no suspect test in ${this.formatid}`);
 		}
 		const user = await ladder.selectOne()`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
 		if (!user?.first_played || user.first_played >= suspect.start_date) {
@@ -104,23 +104,32 @@ export class Ladder {
 			// and otherwise this system would have broken ongoing suspect tests when it was introduced
 			throw new ActionError('This account is already eligible to participate in this suspect test.');
 		}
-		if (user.rd >= GlickoPlayer.RDmax) {
+		const hasRPData = !!JSON.parse(user.rpdata.split('##')[0]).length;
+		const hasParticipationData = await suspectParticipation.selectOne()`WHERE userid = ${toID(name)} AND
+			formatid = ${this.formatid} AND start_date = ${suspect.start_date}`;
+		if (hasRPData && hasParticipationData) {
+			// user has pending match data; resetting RD now would mess up how their rating is calculated
+			throw new ActionError('You have played rated games in this format today. Please try again tomorrow.');
+		}
+		if (user.rd >= GLICKO_RD_MAX && (hasParticipationData || !hasRPData)) {
 			// don't allow accounts to spam this command
 			throw new ActionError(
 				'This account is already eligible to participate in this suspect test, ' +
 				'or it has already used this command today.'
 			);
 		}
-		if (JSON.parse(user.rpdata.split('##')[0]).length) {
-			// user has pending match data; resetting RD now would mess up how their rating is calculated
-			throw new ActionError('You have played rated games in this format today. Please try again tomorrow.');
-			// alternatively, we could force-update their glicko rating now instead,
-			// because the previous check is enough to throttle this command to once per day
+		const update: Partial<LadderEntry> = { rd: GLICKO_RD_MAX, rprd: GLICKO_RD_MAX };
+		if (hasRPData) {
+			// to allow accounts to begin participating the day the suspect starts,
+			// if an account has rpdata but no participation data,
+			// we just roll their pending glicko r value into their "official" one early and clear their rpdata
+			// it would be bad to do this too often, since it adds one extra day of drift towards the max value of RD
+			// but once per suspect should be ok
+			update.r = user.rpr;
+			update.rpdata = JSON.stringify([]);
 		}
 
-		return ladder.updateOne({
-			rd: GlickoPlayer.RDmax, rprd: GlickoPlayer.RDmax, // r: user.rpr, rpdata: JSON.stringify([]),
-		})`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
+		return ladder.updateOne(update)`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
 	}
 	getRating(user: string): Promise<LadderEntry | null>;
 	getRating(user: string, create: true): Promise<LadderEntry>;
@@ -406,9 +415,6 @@ export class GlickoPlayer {
 	rd: number;
 
 	readonly piSquared = Math.PI ** 2;
-	static RDmax = 130.0;
-	static RDmin = 25.0;
-	c: number;
 	readonly q = 0.00575646273;
 	m: MatchElement[] = [];
 
@@ -416,7 +422,6 @@ export class GlickoPlayer {
 		// Step 1
 		this.rating = rating;
 		this.rd = rd;
-		this.c = Math.sqrt((GlickoPlayer.RDmax * GlickoPlayer.RDmax - GlickoPlayer.RDmin * GlickoPlayer.RDmin) / 365.0);
 	}
 
 	addWin(otherPlayer: GlickoPlayer) {
