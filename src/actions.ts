@@ -209,7 +209,7 @@ export async function trackSuspectParticipation(
 	if (!rating) return;
 	let particpation = await tables.suspectParticipation.selectOne()`WHERE formatid = ${suspect.formatid}
 		AND start_date = ${suspect.start_date} AND userid = ${rating.userid}`;
-	if (rating.rprd >= GLICKO_RD_MAX && (suspect.coil || suspect.gxe)) {
+	if (rating.rprd >= GLICKO_RD_MAX && (suspect.coil)) {
 		// create new entry for new participant
 		// (or reset an existing entry if RD has been reset since it was created)
 		particpation = {

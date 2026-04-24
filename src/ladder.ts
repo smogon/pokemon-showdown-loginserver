@@ -96,6 +96,13 @@ export class Ladder {
 		const suspect = await suspects.get(this.formatid);
 		if (!suspect) {
 			throw new ActionError(`There is no suspect test in ${this.formatid}`);
+		} else if (!suspect.coil) {
+			throw new ActionError(`This command is only available for tests with COIL requirements.`);
+		}
+		const participationData = await suspectParticipation.selectOne()`WHERE userid = ${toID(name)} AND
+			formatid = ${this.formatid} AND start_date = ${suspect.start_date}`;
+		if (participationData?.qualified) {
+			throw new ActionError('You have already qualified to vote in this suspect test!');
 		}
 		const user = await ladder.selectOne()`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
 		if (!user?.first_played || user.first_played >= suspect.start_date) {
@@ -104,32 +111,38 @@ export class Ladder {
 			// and otherwise this system would have broken ongoing suspect tests when it was introduced
 			throw new ActionError('This account is already eligible to participate in this suspect test.');
 		}
-		const hasRPData = !!JSON.parse(user.rpdata.split('##')[0]).length;
-		const hasParticipationData = await suspectParticipation.selectOne()`WHERE userid = ${toID(name)} AND
-			formatid = ${this.formatid} AND start_date = ${suspect.start_date}`;
-		if (hasRPData && hasParticipationData) {
+		let hasRPData = true;
+
+		if (this.getRP() > user.rptime) {
+			// if the user's rating is out of date, update it to get current RD and clear pending match data
+			this.update(user);
+			hasRPData = false;
+		}
+		hasRPData = hasRPData && !!JSON.parse(user.rpdata.split('##')[0]).length;
+		if (hasRPData && participationData) {
 			// user has pending match data; resetting RD now would mess up how their rating is calculated
 			throw new ActionError('You have played rated games in this format today. Please try again tomorrow.');
 		}
-		if (user.rd >= GLICKO_RD_MAX && (hasParticipationData || !hasRPData)) {
+		if (user.rd >= GLICKO_RD_MAX && (participationData || !hasRPData)) {
 			// don't allow accounts to spam this command
 			throw new ActionError(
 				'This account is already eligible to participate in this suspect test, ' +
 				'or it has already used this command today.'
 			);
 		}
-		const update: Partial<LadderEntry> = { rd: GLICKO_RD_MAX, rprd: GLICKO_RD_MAX };
+
+		user.rd = user.rprd = GLICKO_RD_MAX;
 		if (hasRPData) {
 			// to allow accounts to begin participating the day the suspect starts,
 			// if an account has rpdata but no participation data,
 			// we just roll their pending glicko r value into their "official" one early and clear their rpdata
-			// it would be bad to do this too often, since it adds one extra day of drift towards the max value of RD
+			// it could be bad to do this too often, since it would reduce the accuracy of Glicko ratings (probably?)
 			// but once per suspect should be ok
-			update.r = user.rpr;
-			update.rpdata = JSON.stringify([]);
+			user.r = user.rpr;
+			user.rpdata = JSON.stringify([]);
 		}
 
-		return ladder.updateOne(update)`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
+		return ladder.updateOne(user)`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
 	}
 	getRating(user: string): Promise<LadderEntry | null>;
 	getRating(user: string, create: true): Promise<LadderEntry>;
