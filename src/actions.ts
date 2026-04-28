@@ -9,7 +9,7 @@ import * as pathModule from 'path';
 import * as crypto from 'crypto';
 import * as url from 'url';
 import { Config } from './config-loader';
-import { GLICKO_RD_MAX, Ladder, type LadderEntry } from './ladder';
+import { Ladder, type LadderEntry } from './ladder';
 import { Replays } from './replays';
 import { ActionError, type QueryHandler, Server, DISPATCH_PREFIX } from './server';
 import { Session } from './user';
@@ -30,7 +30,6 @@ export interface Suspect {
 
 export interface SuspectParticipation {
 	entryid: number;
-	formatid: string;
 	start_date: number;
 	userid: string;
 	w: number;
@@ -121,10 +120,6 @@ export async function checkSuspectVerified(
 	rating: LadderEntry,
 	suspect: Suspect
 ) {
-	// sanity check
-	// a player with maxed rprd has definitely played no games during the test
-	if (rating.rprd >= GLICKO_RD_MAX) return false;
-
 	let wltData: { w: number, l: number, t: number } | null;
 	if ((rating?.first_played && rating.first_played > suspect.start_date)) {
 		// did not play games before the test began
@@ -177,7 +172,6 @@ export async function checkSuspectVerified(
 
 		if (wltData === rating) {
 			void tables.suspectParticipation.insert({
-				formatid: suspect.formatid,
 				start_date: suspect.start_date,
 				userid: rating.userid,
 				w: rating.w,
@@ -203,17 +197,17 @@ function exportTeam(team: string) {
 
 export async function trackSuspectParticipation(
 	rating: LadderEntry | null,
-	score: number,
-	suspect: Suspect
+	suspect: Suspect,
+	score?: number
 ) {
 	if (!rating) return;
 	let particpation = await tables.suspectParticipation.selectOne()`WHERE formatid = ${suspect.formatid}
 		AND start_date = ${suspect.start_date} AND userid = ${rating.userid}`;
-	if (rating.rprd >= GLICKO_RD_MAX && (suspect.coil)) {
+	const createEntry = score === undefined;
+	if (createEntry) {
 		// create new entry for new participant
 		// (or reset an existing entry if RD has been reset since it was created)
 		particpation = {
-			formatid: suspect.formatid,
 			start_date: suspect.start_date,
 			userid: rating.userid,
 			w: 0,
@@ -223,7 +217,7 @@ export async function trackSuspectParticipation(
 		} as SuspectParticipation;
 	}
 	if (particpation && !particpation.qualified) {
-		particpation[Ladder.scoreToKey(score)]++;
+		if (!createEntry) particpation[Ladder.scoreToKey(score)]++;
 		await tables.suspectParticipation.upsert(particpation);
 	}
 }
@@ -518,8 +512,8 @@ export const actions: { [k: string]: QueryHandler } = {
 		const suspect = await tables.suspects.get(formatid);
 		const scores = Ladder.expandP1Score(parseFloat(params.score));
 		if (suspect) {
-			await trackSuspectParticipation(await ladder.getRating(params.p1!), scores[0], suspect);
-			await trackSuspectParticipation(await ladder.getRating(params.p2!), scores[1], suspect);
+			await trackSuspectParticipation(await ladder.getRating(params.p1!), suspect, scores[0]);
+			await trackSuspectParticipation(await ladder.getRating(params.p2!), suspect, scores[1]);
 		}
 		const [p1rating, p2rating] = await ladder.addMatch(params.p1!, params.p2!, ...scores);
 		if (suspect) {
@@ -1342,15 +1336,46 @@ export const actions: { [k: string]: QueryHandler } = {
 		if (this.getIp() !== Config.restartip) {
 			throw new ActionError("Access denied.");
 		}
-		const id = toID(params.format);
-		if (!id) throw new ActionError("No format ID specified.");
-		if (!params.user) {
+		const formatid = toID(params.format);
+		if (!formatid) throw new ActionError("No format ID specified.");
+		const userid = toID(params.user);
+		if (!userid) {
 			throw new ActionError("User not specified.");
 		}
-		await new Ladder(id).resetRD(params.user);
+
+		// no RD reset version
+		const suspect = await tables.suspects.get(formatid);
+		if (!suspect) {
+			throw new ActionError(`There is no suspect test in ${formatid}`);
+		} else if (!suspect.coil) {
+			throw new ActionError(`This command is only available for tests with COIL requirements.`);
+		}
+		const participationData = await tables.suspectParticipation.selectOne()`WHERE userid = ${userid} AND
+			formatid = ${formatid} AND start_date = ${suspect.start_date}`;
+		if (participationData) {
+			if (participationData.qualified) {
+				throw new ActionError('This account has already qualified to vote in this suspect test!');
+				// it would be nice to show the user a URL that takes them to voting in this case
+			} else {
+				throw new ActionError('This account has already been made eligible to participate in this suspect test.');
+			}
+		}
+		const user = await tables.ladder.selectOne()`WHERE userid = ${userid} AND formatid = ${formatid}`;
+		if (!user?.first_played || user.first_played >= suspect.start_date) {
+			// don't track participation for accounts without activity before the suspect
+			// there's no reason we should need to, it saves on space,
+			// and otherwise this system would have broken ongoing suspect tests when it was introduced
+			throw new ActionError('This account is already eligible to participate in this suspect test.');
+		}
+
+		await trackSuspectParticipation(user, suspect);
 	},
 
 	async 'suspects/add'(params) {
+		await this.requireMainServer();
+		if (this.getIp() !== Config.restartip) {
+			throw new ActionError("Access denied.");
+		}
 		const id = toID(params.format);
 		if (!id) throw new ActionError("No format ID specified.");
 		if (!params.reqs) {

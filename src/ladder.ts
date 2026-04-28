@@ -6,8 +6,7 @@
  */
 
 import { toID, time } from './utils';
-import { ladder, suspectParticipation, suspects } from './tables';
-import { ActionError } from './server';
+import { ladder } from './tables';
 
 /** length of a rating period in days (used for Glicko and Elo decay).
  *  Glickman recommends 5-10 games per rating period */
@@ -17,7 +16,7 @@ const RP_LENGTH = 24 * 60 * 60 * RP_LENGTH_DAYS;
 /** time in UTC rating periods roll over, in seconds (9am UTC, or 4am Chicago Time) */
 const RP_OFFSET = 9 * 60 * 60;
 
-export const GLICKO_RD_MAX = 130.0;
+const GLICKO_RD_MAX = 130.0;
 const GLICKO_RD_MIN = 25.0;
 
 const GLICKO_C = Math.sqrt((GLICKO_RD_MAX ** 2 - GLICKO_RD_MIN ** 2) / (365.0 / RP_LENGTH_DAYS));
@@ -91,58 +90,6 @@ export class Ladder {
 		return ladder.updateOne({
 			w: 0, l: 0, t: 0,
 		})`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
-	}
-	async resetRD(name: string) {
-		const suspect = await suspects.get(this.formatid);
-		if (!suspect) {
-			throw new ActionError(`There is no suspect test in ${this.formatid}`);
-		} else if (!suspect.coil) {
-			throw new ActionError(`This command is only available for tests with COIL requirements.`);
-		}
-		const participationData = await suspectParticipation.selectOne()`WHERE userid = ${toID(name)} AND
-			formatid = ${this.formatid} AND start_date = ${suspect.start_date}`;
-		if (participationData?.qualified) {
-			throw new ActionError('You have already qualified to vote in this suspect test!');
-		}
-		const user = await ladder.selectOne()`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
-		if (!user?.first_played || user.first_played >= suspect.start_date) {
-			// don't allow accounts without activity before the suspect to reset RD
-			// there's no reason they should need to, it saves on space,
-			// and otherwise this system would have broken ongoing suspect tests when it was introduced
-			throw new ActionError('This account is already eligible to participate in this suspect test.');
-		}
-		let hasRPData = true;
-
-		if (this.getRP() > user.rptime) {
-			// if the user's rating is out of date, update it to get current RD and clear pending match data
-			this.update(user);
-			hasRPData = false;
-		}
-		hasRPData = hasRPData && !!JSON.parse(user.rpdata.split('##')[0]).length;
-		if (hasRPData && participationData) {
-			// user has pending match data; resetting RD now would mess up how their rating is calculated
-			throw new ActionError('You have played rated games in this format today. Please try again tomorrow.');
-		}
-		if (user.rd >= GLICKO_RD_MAX && (participationData || !hasRPData)) {
-			// don't allow accounts to spam this command
-			throw new ActionError(
-				'This account is already eligible to participate in this suspect test, ' +
-				'or it has already used this command today.'
-			);
-		}
-
-		user.rd = user.rprd = GLICKO_RD_MAX;
-		if (hasRPData) {
-			// to allow accounts to begin participating the day the suspect starts,
-			// if an account has rpdata but no participation data,
-			// we just roll their pending glicko r value into their "official" one early and clear their rpdata
-			// it could be bad to do this too often, since it would reduce the accuracy of Glicko ratings (probably?)
-			// but once per suspect should be ok
-			user.r = user.rpr;
-			user.rpdata = JSON.stringify([]);
-		}
-
-		return ladder.updateOne(user)`WHERE userid = ${toID(name)} AND formatid = ${this.formatid}`;
 	}
 	getRating(user: string): Promise<LadderEntry | null>;
 	getRating(user: string, create: true): Promise<LadderEntry>;
