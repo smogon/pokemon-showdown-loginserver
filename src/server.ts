@@ -265,7 +265,7 @@ export const SimServers = new class SimServersT {
 	constructor() {
 		fs.watchFile(Config.serverlist, (curr, prev) => {
 			if (curr.mtime > prev.mtime) {
-				this.loadServers();
+				this.servers = this.loadServers();
 			}
 		});
 	}
