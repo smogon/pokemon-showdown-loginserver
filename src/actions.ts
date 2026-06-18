@@ -11,7 +11,7 @@ import * as url from 'url';
 import { Config } from './config-loader';
 import { Ladder, type LadderEntry } from './ladder';
 import { Replays } from './replays';
-import { ActionError, type QueryHandler, Server, DISPATCH_PREFIX} from './server';
+import { ActionError, type QueryHandler, Server, DISPATCH_PREFIX } from './server';
 import { Session } from './user';
 import {
 	toID, updateserver, bash, time, escapeHTML, signAsync, TimeSorter,
@@ -26,6 +26,16 @@ export interface Suspect {
 	coil: number | null;
 	gxe: number | null;
 	elo: number | null;
+}
+
+export interface SuspectParticipation {
+	entryid: number;
+	start_date: number;
+	userid: string;
+	w: number;
+	l: number;
+	t: number;
+	qualified: 0 | 1;
 }
 
 const OAUTH_TOKEN_TIME = 2 * 7 * 24 * 60 * 60 * 1000;
@@ -106,10 +116,21 @@ export const smogonFetch = async (targetUrl: string, method: string, data: { [k:
 	});
 };
 
-export function checkSuspectVerified(
+export async function checkSuspectVerified(
 	rating: LadderEntry,
 	suspect: Suspect
 ) {
+	let wltData: { w: number, l: number, t: number } | null;
+	if ((rating?.first_played && rating.first_played > suspect.start_date)) {
+		// did not play games before the test began
+		wltData = rating;
+	} else {
+		wltData = await tables.suspectParticipation.selectOne()`WHERE formatid = ${suspect.formatid}
+		AND start_date = ${suspect.start_date} AND userid = ${rating.userid}` || null;
+	}
+
+	if (!wltData) return false;
+
 	let reqsMet = 0;
 	let reqCount = 0;
 	const userData: Partial<{ elo: number, gxe: number, coil: number }> = {};
@@ -120,7 +141,7 @@ export function checkSuspectVerified(
 		reqCount++;
 		switch (k) {
 		case 'coil':
-			const N = rating.w + rating.l + rating.t;
+			const N = wltData.w + wltData.l + wltData.t;
 			const coilNum = Math.round(40.0 * rating.gxe * (2.0 ** (-coil[suspect.formatid] / N)));
 			if (coilNum >= suspect.coil!) {
 				reqsMet++;
@@ -137,9 +158,7 @@ export function checkSuspectVerified(
 	}
 	if (
 		// sanity check for reqs existing just to be totally safe
-		(reqsMet > 0 && reqsMet === reqCount) &&
-		// did not play games before the test began
-		(rating?.first_played && rating.first_played > suspect.start_date)
+		(reqsMet > 0 && reqsMet === reqCount)
 	) {
 		void smogonFetch("tools/api/suspect-verify", "POST", {
 			userid: rating.userid,
@@ -150,6 +169,19 @@ export function checkSuspectVerified(
 			},
 			suspectStartDate: suspect.start_date,
 		});
+
+		if (wltData === rating) {
+			void tables.suspectParticipation.insert({
+				start_date: suspect.start_date,
+				userid: rating.userid,
+				w: rating.w,
+				l: rating.l,
+				t: rating.t,
+				qualified: 1,
+			});
+		} else {
+			void tables.suspectParticipation.update((wltData as SuspectParticipation).entryid, { qualified: 1 });
+		}
 		return true;
 	}
 	return false;
@@ -161,6 +193,33 @@ function exportTeam(team: string) {
 	const teamData = Teams.unpack(team);
 	if (!teamData) return team;
 	return Teams.export(teamData);
+}
+
+export async function trackSuspectParticipation(
+	rating: LadderEntry | null,
+	suspect: Suspect,
+	score?: number
+) {
+	if (!rating) return;
+	let particpation = await tables.suspectParticipation.selectOne()`WHERE formatid = ${suspect.formatid}
+		AND start_date = ${suspect.start_date} AND userid = ${rating.userid}`;
+	const createEntry = score === undefined;
+	if (createEntry) {
+		// create new entry for new participant
+		// (or reset an existing entry if RD has been reset since it was created)
+		particpation = {
+			start_date: suspect.start_date,
+			userid: rating.userid,
+			w: 0,
+			l: 0,
+			t: 0,
+			qualified: 0,
+		} as SuspectParticipation;
+	}
+	if (particpation && !particpation.qualified) {
+		if (!createEntry) particpation[Ladder.scoreToKey(score)]++;
+		await tables.suspectParticipation.upsert(particpation);
+	}
 }
 
 export const actions: { [k: string]: QueryHandler } = {
@@ -435,11 +494,11 @@ export const actions: { [k: string]: QueryHandler } = {
 	},
 
 	async ladderupdate(params) {
-		const server = await this.getServer(true);
-		if (server?.id !== Config.mainserver) {
-			// legacy error
-			return { errorip: this.getIp() };
-		}
+		// const server = await this.getServer(true);
+		// if (server?.id !== Config.mainserver) {
+		// 	// legacy error
+		// 	return { errorip: this.getIp() };
+		// }
 
 		const formatid = toID(params.format);
 		if (!formatid) throw new ActionError("Invalid format.");
@@ -449,12 +508,17 @@ export const actions: { [k: string]: QueryHandler } = {
 		if (!Ladder.isValidPlayer(params.p2)) return 0;
 
 		const out: { [k: string]: any } = {};
-		const [p1rating, p2rating] = await ladder.addMatch(params.p1!, params.p2!, parseFloat(params.score));
 
 		const suspect = await tables.suspects.get(formatid);
+		const scores = Ladder.expandP1Score(parseFloat(params.score));
+		if (suspect) {
+			await trackSuspectParticipation(await ladder.getRating(params.p1!), suspect, scores[0]);
+			await trackSuspectParticipation(await ladder.getRating(params.p2!), suspect, scores[1]);
+		}
+		const [p1rating, p2rating] = await ladder.addMatch(params.p1!, params.p2!, ...scores);
 		if (suspect) {
 			for (const rating of [p1rating, p2rating]) {
-				checkSuspectVerified(rating, suspect);
+				await checkSuspectVerified(rating, suspect);
 			}
 		}
 		out.actionsuccess = true;
@@ -477,6 +541,16 @@ export const actions: { [k: string]: QueryHandler } = {
 			const suspect = await tables.suspects.get(rating.formatid);
 			if (suspect) {
 				rating.suspect = !!rating.first_played && rating.first_played > suspect.start_date;
+				if (!rating.suspect) {
+					const participation = await tables.suspectParticipation.selectOne()`WHERE 
+						formatid = ${suspect.formatid} AND
+						start_date = ${suspect.start_date} AND
+						userid = ${rating.userid}`;
+					if (participation) {
+						rating.suspect = true;
+						[rating.w, rating.l, rating.t] = [participation.w, participation.l, participation.t];
+					}
+				}
 			}
 		}
 		return ratings;
@@ -1257,6 +1331,46 @@ export const actions: { [k: string]: QueryHandler } = {
 		return { ips: times.toJSON() };
 	},
 
+	async 'suspects/join'(params) {
+		await this.requireMainServer();
+		if (this.getIp() !== Config.restartip) {
+			throw new ActionError("Access denied.");
+		}
+		const formatid = toID(params.format);
+		if (!formatid) throw new ActionError("No format ID specified.");
+		const userid = toID(params.user);
+		if (!userid) {
+			throw new ActionError("User not specified.");
+		}
+
+		// no RD reset version
+		const suspect = await tables.suspects.get(formatid);
+		if (!suspect) {
+			throw new ActionError(`There is no suspect test in ${formatid}`);
+		} else if (!suspect.coil) {
+			throw new ActionError(`This command is only available for tests with COIL requirements.`);
+		}
+		const participationData = await tables.suspectParticipation.selectOne()`WHERE userid = ${userid} AND
+			formatid = ${formatid} AND start_date = ${suspect.start_date}`;
+		if (participationData) {
+			if (participationData.qualified) {
+				throw new ActionError('This account has already qualified to vote in this suspect test!');
+				// it would be nice to show the user a URL that takes them to voting in this case
+			} else {
+				throw new ActionError('This account has already been made eligible to participate in this suspect test.');
+			}
+		}
+		const user = await tables.ladder.selectOne()`WHERE userid = ${userid} AND formatid = ${formatid}`;
+		if (!user?.first_played || user.first_played >= suspect.start_date) {
+			// don't track participation for accounts without activity before the suspect
+			// there's no reason we should need to, it saves on space,
+			// and otherwise this system would have broken ongoing suspect tests when it was introduced
+			throw new ActionError('This account is already eligible to participate in this suspect test.');
+		}
+
+		await trackSuspectParticipation(user, suspect);
+	},
+
 	async 'suspects/add'(params) {
 		await this.requireMainServer();
 		if (this.getIp() !== Config.restartip) {
@@ -1278,16 +1392,18 @@ export const actions: { [k: string]: QueryHandler } = {
 		}
 		const start = time();
 		let out;
-		try {
-			const res = await smogonFetch("tools/api/suspect-create", "POST", {
-				date: `${start}`,
-				reqs,
-				format: id,
-			});
-			if (!res) throw new Error('failed');
-			out = await res.json();
-		} catch (e: any) {
-			throw new ActionError("Failed to update Smogon suspect test record: " + e.message);
+		if (id !== 'gen5randombattle') {
+			try {
+				const res = await smogonFetch("tools/api/suspect-create", "POST", {
+					date: `${start}`,
+					reqs,
+					format: id,
+				});
+				if (!res) throw new Error('failed');
+				out = await res.json();
+			} catch (e: any) {
+				throw new ActionError("Failed to update Smogon suspect test record: " + e.message);
+			}
 		}
 		const existing = await tables.suspects.get(id);
 		if (existing) {
@@ -1305,7 +1421,7 @@ export const actions: { [k: string]: QueryHandler } = {
 				coil: reqs.coil || null,
 			});
 		}
-		return { success: true, url: (out as any).url };
+		return { success: true, url: (out as any)?.url };
 	},
 	async 'suspects/edit'(params) {
 		await this.requireMainServer();
@@ -1353,10 +1469,12 @@ export const actions: { [k: string]: QueryHandler } = {
 		const suspect = await tables.suspects.get(id);
 		if (!suspect) throw new ActionError("There is no ongoing suspect for " + id);
 		await tables.suspects.delete(id);
-		await smogonFetch("tools/api/suspect-end", "POST", {
-			formatid: id,
-			time: suspect.start_date,
-		});
+		if (id !== 'gen5randombattle') {
+			await smogonFetch("tools/api/suspect-end", "POST", {
+				formatid: id,
+				time: suspect.start_date,
+			});
+		}
 		return { success: true };
 	},
 	async 'suspects/verify'(params) {
@@ -1373,7 +1491,7 @@ export const actions: { [k: string]: QueryHandler } = {
 		const rating = await new Ladder(id).getRating(userid);
 		if (!rating) throw new ActionError("That user has no ratings in the given ladder.");
 		return {
-			result: checkSuspectVerified(rating, suspect),
+			result: await checkSuspectVerified(rating, suspect),
 		};
 	},
 };

@@ -4,7 +4,7 @@
 
 CREATE TABLE `ntbb_suspects` (
 	formatid varchar(100) NOT NULL PRIMARY KEY,
-	start_date bigint(20) NOT NULL,
+	start_date bigint(20) NOT NULL UNIQUE KEY,
 	elo int,
 	coil int,
 	gxe int

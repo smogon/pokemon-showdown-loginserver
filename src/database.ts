@@ -62,7 +62,7 @@ export class SQLStatement {
 				this.append(value[col], `, `);
 			}
 			this.sql[this.sql.length - 1] = this.sql[this.sql.length - 1].slice(0, -2) + nextString;
-		} else if (this.sql[this.sql.length - 1].toUpperCase().endsWith(' SET ')) {
+		} else if ([' SET ', ' UPDATE '].some(x => this.sql[this.sql.length - 1].toUpperCase().endsWith(x))) {
 			// "`a` = 1, `b` = 2" syntax
 			this.sql[this.sql.length - 1] += `"`;
 			for (const col in value) {
@@ -271,7 +271,7 @@ export class DatabaseTable<Row, DB extends Database> {
 			}) DO UPDATE ${partialUpdate as any} ${where}`;
 		}
 		return this.queryExec(
-		)`INSERT INTO "${this.name}" (${partialRow as any}) ON DUPLICATE KEY UPDATE ${partialUpdate as any} ${where}`;
+		)`INSERT INTO "${this.name}" (${partialRow as any}) ON DUPLICATE KEY UPDATE ${partialUpdate as any}`;
 	}
 	set(primaryKey: BasicSQLValue, partialRow: PartialOrSQL<Row>, where?: SQLStatement) {
 		if (!this.primaryKeyName) throw new Error(`Cannot set() without a single-column primary key`);
