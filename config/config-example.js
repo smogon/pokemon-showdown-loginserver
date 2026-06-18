@@ -43,6 +43,7 @@ exports.passwordSalt = 10;
 /** @type {Record<string, string>} */
 exports.routes = {
 	root: "pokemonshowdown.com",
+	client: "play.pokemonshowdown.com",
 };
 
 /** @type {string} */
@@ -191,6 +192,11 @@ exports.standings = {
 	"20": "Permalock",
 	"30": "Permaban",
 	"100": "Disabled",
+};
+/** @type {{transportOpts: import('nodemailer').TransportOptions, from: string}} */
+exports.passwordemails = {
+	transportOpts: {},
+	from: 'passwords@pokemonshowdown.com',
 };
 
 /**
