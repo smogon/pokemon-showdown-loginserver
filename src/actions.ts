@@ -95,7 +95,7 @@ const redundantFetch = async (targetUrl: string, data: RequestInit, attempts = 0
 	} catch (e: any) {
 		console.log('error in smogon fetch', e);
 		if (e.code === 400) return null;
-		return redundantFetch(targetUrl, data, attempts++);
+		return redundantFetch(targetUrl, data, attempts + 1);
 	}
 	return out;
 };
@@ -573,7 +573,7 @@ export const actions: { [k: string]: QueryHandler } = {
 		} catch (err) {
 			throw new ActionError(`Could not read color file (${err as any})`);
 		}
-		let entry = '';
+		let entry: string;
 		if (!('source' in params)) {
 			if (!colors[userid]) {
 				throw new ActionError(
@@ -865,7 +865,7 @@ export const actions: { [k: string]: QueryHandler } = {
 		if (!user.loggedIn || user.id === 'guest') {
 			return { loggedIn: false, teams: [] }; // don't wanna nag people with popups if they aren't logged in
 		}
-		let teams = [];
+		let teams;
 		try {
 			teams = await tables.teams.selectAll(
 				SQL`teamid, team, format, title as name, private`
