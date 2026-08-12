@@ -25,7 +25,20 @@
 
 		<div class="main"><section class="section">
 			<h2>Authorize {{client}}</h2><hr />
-			<div class="infobox" id="authpanel">
+			<div class="infobox" id="loginpanel" style="display:none">
+				<p id="loginerror" class="error" role="alert" style="color:red;display:none"></p>
+				<p>Log in to authorize {{client}}.</p>
+				<form id="loginform">
+					<p><label class="label">Username:<br />
+						<input class="textbox" type="text" name="name" autocomplete="username" required />
+					</label></p>
+					<p><label class="label">Password:<br />
+						<input class="textbox" type="password" name="pass" autocomplete="current-password" required />
+					</label></p>
+					<p class="buttonbar"><button id="login" class="button greenbutton" type="submit">Log in</button></p>
+				</form>
+			</div>
+			<div class="infobox" id="authpanel" style="display:none">
 				{{client}} by {{client_name}} wants to access your Pokemon Showdown account<span id="username"></span>.<br />
 				This does not expose any private information, and will allow you to log in on their site using your Pokemon Showdown account for two weeks.<br /><br /><hr />
 				<a id="auth" class="button greenbutton nav-first nav-last">Authorize</a><br /><br />
@@ -56,20 +69,11 @@
 		var tokenName = 'ps-' + params.get('client_id') + "-token";
 		var token = localStorage.getItem(tokenName);
 		var authorizedUser = '';
-		var username = document.cookie
-			.split('; ')
-			.filter(x => x.startsWith('showdown_username'))
-			.map(x => x.split('=').slice(1).join('='))[0];
-		if (!username) {
-			alert("Please log in on Pokemon Showdown before using this page.");
-			throw '';
-		} else {
-			document.getElementById('username').innerText = ` (logged in as "${decodeURI(username)}")`;
-		}
-		if (token) {
-			params.set('token', token);
-		}
 		var acting = false;
+
+		function setUsername(username) {
+			document.getElementById('username').innerText = ` (logged in as "${username}")`;
+		}
 
 		function getAssertion() {
 			$.get('/api/oauth/api/getassertion', {
@@ -125,19 +129,69 @@
 			}));
 		}
 
-		var jqueryEl = document.createElement('script');
-		jqueryEl.src = '/js/lib/jquery-2.2.4.min.js';
-		jqueryEl.onload = function() {
-			if (!params.get('token')) {
-				$('#auth').on('click', () => {
+		function showLogin(error) {
+			$('#authpanel').css({display: 'none'});
+			$('#loginpanel').css({display: ''});
+			if (error) {
+				$('#loginerror').text(error).css({display: ''});
+			} else {
+				$('#loginerror').css({display: 'none'});
+			}
+		}
+
+		function setupAuthorization(useStoredToken) {
+			$('#loginpanel').css({display: 'none'});
+			$('#authpanel').css({display: ''});
+			if (useStoredToken && token) {
+				params.set('token', token);
+				$('#authpanel').css({display: 'none'});
+				getAssertion();
+			} else {
+				params.delete('token');
+				localStorage.removeItem(tokenName);
+				$('#auth').off('click').on('click', () => {
 					if (acting) return;
 					acting = true;
 					authorize();
 				});
-			} else {
-				$('#authpanel').css({display: 'none'});
-				getAssertion();
 			}
+		}
+
+		function checkLogin(error, useStoredToken = true) {
+			$.get('/api/oauth/api/authorized', safeJSON(function (data) {
+				if (data.username) {
+					setUsername(data.username);
+					setupAuthorization(useStoredToken);
+				} else {
+					showLogin(error);
+				}
+			})).fail(function () {
+				showLogin('The loginserver could not check your session. Please try again.');
+			});
+		}
+
+		var jqueryEl = document.createElement('script');
+		jqueryEl.src = '/js/lib/jquery-2.2.4.min.js';
+		jqueryEl.onload = function() {
+			$('#loginform').on('submit', function (event) {
+				event.preventDefault();
+				if (acting) return;
+				acting = true;
+				$('#login').prop('disabled', true).text('Logging in...');
+				$.post('/api/login', {
+					name: this.elements['name'].value,
+					pass: this.elements['pass'].value,
+				}, safeJSON(function (data) {
+					acting = false;
+					$('#login').prop('disabled', false).text('Log in');
+					if (!data.actionsuccess || !data.curuser || !data.curuser.username) {
+						showLogin(data.actionerror || 'Wrong username or password.');
+						return;
+					}
+					checkLogin('Log in with a registered account.', false);
+				}));
+			});
+			checkLogin();
 		}
 		document.body.appendChild(jqueryEl);
 
