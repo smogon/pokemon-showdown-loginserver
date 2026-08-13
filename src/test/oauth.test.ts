@@ -160,6 +160,8 @@ void suite('OAuth', () => {
 		const valid = await httpRequest(server, `/api/oauth/authorize?${validParams}`);
 		assert.equal(valid.statusCode, 200);
 		assert.match(valid.body, /OAuth fixture A/);
+		assert.match(valid.body, /id="loginform"/);
+		assert.match(valid.body, /\$\.post\('\/api\/login'/);
 		assert.match(valid.body, /\$\.post\('\/api\/oauth\/api\/authorize'/);
 		assert.match(valid.body, /redirect\.searchParams\.set\('token', params\.get\('token'\)\)/);
 		assert.equal(valid.headers['access-control-allow-origin'], undefined);
