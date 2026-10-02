@@ -5,7 +5,8 @@ import { MockDatabase, MySQLDatabase, PGDatabase, SQLiteDatabase } from './datab
 import { Config } from './config-loader.ts';
 
 import type { LadderEntry } from './ladder.ts';
-import type { Suspect } from './actions.ts';
+import type { ReplayRow } from './replays';
+import type { SuspectParticipation, Suspect } from './actions';
 
 type DatabaseDriver = 'mysql' | 'postgres' | 'sqlite' | 'mock';
 type DatabaseConfig = {
@@ -195,3 +196,5 @@ export const teams = friendsDB.getTable<{
 }>('teams', 'teamid');
 
 export const suspects = loginDB.getTable<Suspect>("suspects", 'formatid');
+
+export const suspectParticipation = loginDB.getTable<SuspectParticipation>("suspect_participation", 'entryid');

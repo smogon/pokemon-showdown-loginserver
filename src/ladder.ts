@@ -19,7 +19,6 @@ const RP_OFFSET = 9 * 60 * 60;
 const GLICKO_RD_MAX = 130.0;
 const GLICKO_RD_MIN = 25.0;
 
-// this solves for going from min RD to max RD in 365 days
 const GLICKO_C = Math.sqrt((GLICKO_RD_MAX ** 2 - GLICKO_RD_MIN ** 2) / (365.0 / RP_LENGTH_DAYS));
 
 export interface LadderEntry {
@@ -273,13 +272,7 @@ export class Ladder {
 		}
 		if (newM) {
 			glicko.m.push(newM);
-			if (newM.score > 0.99) {
-				rating.w++;
-			} else if (newM.score < 0.01) {
-				rating.l++;
-			} else {
-				rating.t++;
-			}
+			rating[Ladder.scoreToKey(newM.score)]++;
 			rating.col1++;
 		}
 
@@ -339,12 +332,11 @@ export class Ladder {
 
 		return true;
 	}
-	async addMatch(player1: string, player2: string, p1score: number) {
+	async addMatch(player1: string, player2: string, p1score: number, p2score?: number) {
 		const p1 = await this.getRating(player1, true);
 		const p2 = await this.getRating(player2, true);
 
-		let p2score = 1 - p1score;
-		if (p1score < 0) [p1score, p2score] = [0, 0];
+		if (!p2score) [p1score, p2score] = Ladder.expandP1Score(p1score);
 
 		const p1M = new GlickoPlayer(p2.r, p2.rd).matchElement(p1score)[0];
 		const p2M = new GlickoPlayer(p1.r, p1.rd).matchElement(p2score)[0];
@@ -361,6 +353,20 @@ export class Ladder {
 		const userid = toID(username);
 		if (userid.length > 18 || !userid) return null;
 		return userid;
+	}
+	static expandP1Score(p1score: number): [number, number] {
+		let p2score = 1 - p1score;
+		if (p1score < 0) [p1score, p2score] = [0, 0];
+		return [p1score, p2score];
+	}
+	static scoreToKey(score: number) {
+		if (score > 0.99) {
+			return 'w';
+		} else if (score < 0.01) {
+			return 'l';
+		} else {
+			return 't';
+		}
 	}
 }
 

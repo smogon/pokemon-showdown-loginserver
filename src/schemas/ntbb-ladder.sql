@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS `ntbb_ladder` (
   `rpdata` mediumblob NOT NULL,
   `elo` double NOT NULL DEFAULT '1000',
   `col1` double NOT NULL,
+  `oldelo` double NOT NULL DEFAULT '1000',
+  `first_played` bigint(11) NOT NULL,
+  `last_played` bigint(11) NOT NULL,
   PRIMARY KEY (`entryid`),
   UNIQUE KEY `userformats` (`userid`,`formatid`),
   KEY `formattoplist` (`formatid`,`elo`)
