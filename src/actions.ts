@@ -1384,7 +1384,7 @@ export const actions: { [k: string]: QueryHandler } = {
 		}
 		const ownerData = await tables.users.get(bot);
 		if (!ownerData) {
-			throw new ActionError(`Owner account '${bot}' does not exist.`);
+			throw new ActionError(`Owner account '${owner}' does not exist.`);
 		}
 		if (ownerData.account) {
 			throw new ActionError(`Bot accounts cannot be marked as owners of other bot accounts.`);
