@@ -1378,6 +1378,9 @@ export const actions: { [k: string]: QueryHandler } = {
 		if (!owner || !bot) {
 			throw new ActionError(`Missing 'owner' or 'bot' account name parameters.`);
 		}
+		if (owner === bot) {
+			throw new ActionError(`Owner and bot must differ.`);
+		}
 		const botData = await tables.users.get(bot);
 		if (!botData) {
 			throw new ActionError(`Bot account '${bot}' does not exist.`);
