@@ -5,6 +5,7 @@ import { strict as assert } from 'node:assert';
 import * as crypto from 'node:crypto';
 import { after, suite, test } from 'node:test';
 
+import { Config } from '../config-loader.ts';
 import { Ladder } from '../ladder.ts';
 import { Server } from '../server.ts';
 import * as tables from '../tables.ts';
@@ -80,6 +81,41 @@ void suite('Loginserver actions', () => {
 				challstr: crypto.randomBytes(128).toString('hex'),
 			});
 			assert(newPasswordLogin.result.actionsuccess, 'User could not log in with the new password');
+		});
+
+		void test('Should give bot accounts the bot usertype', async t => {
+			// the test config has no signing key, so use a throwaway one to get a real assertion
+			const oldPrivateKey = Config.privatekey;
+			t.after(() => {
+				Config.privatekey = oldPrivateKey;
+			});
+			Config.privatekey = crypto.generateKeyPairSync('rsa', {
+				modulusLength: 2048,
+				privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+				publicKeyEncoding: { type: 'spki', format: 'pem' },
+			}).privateKey;
+
+			await tables.users.delete('entrapta').catch(() => null);
+			await server.request('register', {
+				username: 'Entrapta',
+				password: 'imp0ssible',
+				cpassword: 'imp0ssible',
+				captcha: 'pikachu',
+				challstr: crypto.randomBytes(128).toString('hex'),
+				challengekeyid: '1',
+			});
+			await tables.users.update('entrapta', { group: 10 });
+
+			const login = await server.request('login', {
+				name: 'entrapta',
+				pass: 'imp0ssible',
+				challengekeyid: `${Config.challengekeyid}`,
+				challstr: crypto.randomBytes(128).toString('hex'),
+			});
+			const [challenge, userid, userType] = login.result.assertion.split(';')[0].split(',');
+			assert(challenge, `Login failed: ${login.result.assertion}`);
+			assert.equal(userid, 'entrapta');
+			assert.equal(userType, '10');
 		});
 	});
 
