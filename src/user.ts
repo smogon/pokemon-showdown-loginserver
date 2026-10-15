@@ -204,7 +204,7 @@ export class Session {
 			forceUsertype = '5';
 		}
 		let userType;
-		const userData = user.loggedIn ? await users.get(user.id, SQL`banstate, registertime, logintime`) : null;
+		const userData = user.loggedIn ? await users.get(user.id, SQL`banstate, registertime, logintime, "${'group'}"`) : null;
 		const { banstate, group, registertime, logintime } = userData || {
 			banstate: 0, registertime: 0, logintime: 0, group: 0,
 		};
