@@ -456,8 +456,13 @@ export const actions: { [k: string]: QueryHandler } = {
 		const user = Ladder.isValidPlayer(params.user);
 		if (!user) throw new ActionError("Invalid username.");
 
-		const ratings = await Ladder.getAllRatings(user) as (LadderEntry & { suspect?: boolean })[];
+		const ratings = await Ladder.getAllRatings(user) as (LadderEntry & { suspect?: boolean, coil?: number })[];
 		for (const rating of ratings) {
+			const coilB = coil[rating.formatid];
+			if (coilB !== undefined) {
+				const N = rating.w + rating.l + rating.t;
+				rating.coil = N ? 40 * rating.gxe * 2 ** (-coilB / N) : 0;
+			}
 			const suspect = await tables.suspects.get(rating.formatid);
 			if (suspect) {
 				rating.suspect = !!rating.first_played && rating.first_played > suspect.start_date;
@@ -697,10 +702,11 @@ export const actions: { [k: string]: QueryHandler } = {
 			throw new ActionError("No redirect_uri provided");
 		}
 		const client = await OAuth.getClient(params.client_id, params.redirect_uri, 'redirect_uri');
+		const user = await this.getUser();
 
 		this.response.setHeader('Content-Type', 'text/html');
 		try {
-			const content = OAuth.renderAuthorizePage(client);
+			const content = OAuth.renderAuthorizePage(client, user.loggedIn ? user.name : '');
 			this.response.setHeader('Content-Length', Buffer.byteLength(content));
 			return content;
 		} catch (e) {
@@ -1361,6 +1367,39 @@ export const actions: { [k: string]: QueryHandler } = {
 		return {
 			result: checkSuspectVerified(rating, suspect),
 		};
+	},
+	async setbot(params) {
+		await this.requireMainServer();
+		if (this.getIp() !== Config.restartip) {
+			throw new ActionError("Access denied.");
+		}
+		const owner = toID(params.owner);
+		const bot = toID(params.bot);
+		if (!owner || !bot) {
+			throw new ActionError(`Missing 'owner' or 'bot' account name parameters.`);
+		}
+		if (owner === bot) {
+			throw new ActionError(`Owner and bot must differ.`);
+		}
+		const botData = await tables.users.get(bot);
+		if (!botData) {
+			throw new ActionError(`Bot account '${bot}' does not exist.`);
+		}
+		const ownerData = await tables.users.get(owner);
+		if (!ownerData) {
+			throw new ActionError(`Owner account '${owner}' does not exist.`);
+		}
+		if (ownerData.account) {
+			throw new ActionError(`Bot accounts cannot be marked as owners of other bot accounts.`);
+		}
+		if (botData.group > 1 && botData.group < 10) {
+			throw new ActionError(`Cannot mark a staff account as a bot.`);
+		}
+		await tables.users.update(bot, {
+			account: owner,
+			group: 10,
+		});
+		return { success: true };
 	},
 };
 
