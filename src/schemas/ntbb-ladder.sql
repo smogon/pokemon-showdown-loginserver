@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS `ntbb_ladder` (
   `rpsigma` double NOT NULL DEFAULT '0.06',
   `rpdata` mediumblob NOT NULL,
   `elo` double NOT NULL DEFAULT '1000',
+  `peak` double NOT NULL DEFAULT '1000',
   `col1` double NOT NULL,
   PRIMARY KEY (`entryid`),
   UNIQUE KEY `userformats` (`userid`,`formatid`),
