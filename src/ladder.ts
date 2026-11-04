@@ -53,6 +53,8 @@ export interface LadderEntry {
 	rpdata: string;
 	/** Elo. ours starts/floors at 1000 with a scaling K factor */
 	elo: number;
+	/**	User's highest elo */
+	peak: number;
 	/** @deprecated unused, intended as futureproofing (look, we used MySQL...) */
 	col1: number;
 	/** Elo before last rating period update */
@@ -119,6 +121,7 @@ export class Ladder {
 			rpdata: '',
 			w: 0, l: 0, t: 0, gxe: 50,
 			elo: 1000,
+			peak: 1000,
 			col1: 0,
 			oldelo: 0,
 			first_played: now,
@@ -336,6 +339,8 @@ export class Ladder {
 
 			rating.elo = elo;
 		}
+
+		if (elo > rating.peak) rating.peak = elo;
 
 		return true;
 	}
