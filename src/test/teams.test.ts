@@ -17,7 +17,9 @@ void suite('team changes', () => {
 	});
 
 	void after(async () => {
-		await new Promise<void>(resolve => server.server.close(() => resolve()));
+		await new Promise<void>(resolve => {
+			server.server.close(() => resolve());
+		});
 	});
 
 	async function request(action: string, method: string, requestOrigin?: string, sid?: string) {

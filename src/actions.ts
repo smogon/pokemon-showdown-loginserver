@@ -147,7 +147,7 @@ function exportTeam(team: string) {
 
 function requireTeamMutationRequest(context: ActionContext, params: ActionRequest) {
 	if (context.request.method !== 'POST' ||
-		(!params.sid && !OAuth.isSameOriginRequest(context.request.headers))) {
+		(!params.sid && !OAuth.isSameOriginRequest(context))) {
 		throw new ActionError("Invalid team change request.");
 	}
 }
@@ -729,7 +729,7 @@ export const actions: { [k: string]: QueryHandler } = {
 		if (this.request.method !== 'POST') {
 			throw new ActionError("OAuth authorization requires POST.");
 		}
-		if (!OAuth.isSameOriginRequest(this.request.headers)) {
+		if (!OAuth.isSameOriginRequest(this)) {
 			throw new ActionError("OAuth authorization requires a same-origin request.");
 		}
 		const user = await this.getUser();
