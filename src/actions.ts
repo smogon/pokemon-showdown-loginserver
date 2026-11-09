@@ -435,6 +435,8 @@ export const actions: { [k: string]: QueryHandler } = {
 		}
 
 		const formatid = toID(params.format);
+		params.p1 = toID(params.p1);
+		params.p2 = toID(params.p2);
 		if (!formatid) throw new ActionError("Invalid format.");
 		if (!params.score) throw new ActionError("Score required.");
 		const ladder = new Ladder(formatid);
